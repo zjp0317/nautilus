@@ -676,7 +676,11 @@ else
 ifdef NAUT_CONFIG_GEM5
 LD_SCRIPT:=link/nautilus.ld.gem5
 else
+ifdef NAUT_CONFIG_PISCES
+LD_SCRIPT:=link/nautilus.ld.pisces
+else
 LD_SCRIPT:=link/nautilus.ld
+endif
 endif
 endif
 endif
