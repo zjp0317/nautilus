@@ -56,6 +56,11 @@
 #define DEBUG(fmt, args...) DEBUG_PRINT("vc: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("vc: " fmt, ##args)
 
+#ifdef NAUT_CONFIG_PISCES // functions to write into pisces console
+extern void pisces_cons_write (const char *str);
+extern void pisces_cons_putc (unsigned char c);
+#endif
+
 static int up=0;
 
 static spinlock_t state_lock;
@@ -766,6 +771,10 @@ int nk_vc_putchar(uint8_t c)
   serial_putchar(c);
 #endif
 
+#ifdef NAUT_CONFIG_PISCES // currently just redirect everything to pisces cons
+  pisces_cons_putc(c);
+#endif
+
   return c;
 }
 
@@ -826,10 +835,14 @@ int nk_vc_print(char *s)
     phi_cons_print(s);
 #endif
   }
+
 #ifdef NAUT_CONFIG_VIRTUAL_CONSOLE_SERIAL_MIRROR_ALL
   serial_write(s);
 #endif
 
+#ifdef NAUT_CONFIG_PISCES // currently just redirect everything to pisces cons
+  pisces_cons_write(s);
+#endif
 
   return 0;
 }

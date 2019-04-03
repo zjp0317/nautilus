@@ -11,11 +11,11 @@ extern struct pisces_boot_params * pisces_boot_params;
 
 // Embedded ringbuffer that maps into a 64KB chunk of memory
 struct pisces_cons_ringbuf {
-	struct pisces_spinlock lock;
-    	uint64_t read_idx;
-    	uint64_t write_idx;
-    	uint64_t cur_len;
-    	uint8_t buf[(64 * 1024) - 32];
+    struct pisces_spinlock lock;
+    uint64_t read_idx;
+    uint64_t write_idx;
+    uint64_t cur_len;
+    uint8_t buf[(64 * 1024) - 32];
 } __attribute__((packed));
 
 
@@ -29,7 +29,7 @@ static int initialized = 0;
 /**
  * Prints a single character to the pisces console buffer.
  */
-static void pisces_cons_putc(unsigned char c)
+void pisces_cons_putc(unsigned char c)
 {
 	pisces_spin_lock(&(console_buffer->lock));
 
@@ -80,23 +80,13 @@ void pisces_cons_write (const char *str);
 void pisces_cons_write (const char *str)
 {	
 	unsigned char c;
-    str = (const char*)0x434b6f;
     int cnt = 0;
-
-    *(uint64_t*)((uint64_t) pisces_boot_params->init_dbg_buf + 8) = (uint64_t)str;
 
 	while ((c = *str++) != '\0') {
 		pisces_cons_putc(c);
-        pisces_boot_params->init_dbg_buf[cnt] = c;
         cnt = (cnt + 1) % 8;
 	}
-
-    pisces_boot_params->init_dbg_buf[0] = *str;
-
-	
 }
-
-
 
 /**
  * Initializes and registers the pisces console driver.
