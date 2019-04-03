@@ -65,21 +65,21 @@ SECTIONS
         *(.gnu.linkonce.d*)
     }
 
-    .tests ALIGN(0x1000) : AT(ADDR(.data) + SIZEOF(.data))
+    .tests ALIGN(0x1000) : 
     {
         __start_tests = .;
         *(.tests*);
         __stop_tests = .;
     }
 
-    .cmdline_flags ALIGN(0x1000) : AT(ADDR(.tests) + SIZEOF(.tests))
+    .cmdline_flags ALIGN(0x1000) : 
     {
         __start_flags = .;
         *(.cmdline_flags*);
         __stop_flags = .;
     }
     
-    .rodata ALIGN(0x1000) : AT(ADDR(.cmdline_flags) + SIZEOF(.cmdline_flags))
+    .rodata ALIGN(0x1000) : 
     {
         __rodata_start = .;
         LONG(0x00000000deadbeef);
@@ -87,13 +87,13 @@ SECTIONS
         *(.gnu.linkonce.r*)
     }
 
-    .got ALIGN(0x1000) : AT(ADDR(.rodata)+SIZEOF(.rodata))
+    .got ALIGN(0x1000) : 
     {
         *(.got*)
         *(.gnu.linkconce.got*)
     }
 
-    .shell_cmds ALIGN(0x1000) : AT(ADDR(.got)+SIZEOF(.got))
+    .shell_cmds ALIGN(0x1000) : 
     {
         __start_shell_cmds = .;
         *(.shell_cmds*);
@@ -102,7 +102,7 @@ SECTIONS
 
     _loadEnd = .; 
     
-    .bss ALIGN(0x1000) : AT(ADDR(.got)+SIZEOF(.got))
+    .bss ALIGN(0x1000) : 
     {
         *(COMMON)
         *(.bss*)
