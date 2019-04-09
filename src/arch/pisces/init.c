@@ -315,17 +315,35 @@ init (unsigned long mbd,
 
     nk_vc_print(NAUT_WELCOME);
     
-    detect_cpu();
+    //detect_cpu();
 
     /* setup the temporary boot-time allocator */
     mm_boot_init(mbd);
 
+    /* zjp:
+     * Later initialization, such as linker_init(), is based on multiboot info.
+     * TODO: 
+     *   Currently just do it as "no multiboot info is parsed". 
+     *   May need future work to support such initializations.
+     */
+#if 0
     naut->sys.mb_info = multiboot_parse(mbd, magic);
+#endif
+    naut->sys.mb_info = (struct multiboot_info*)mm_boot_alloc(sizeof(struct multiboot_info));
     if (!naut->sys.mb_info) {
         ERROR_PRINT("Problem parsing multiboot header\n");
     }
+    memset(naut->sys.mb_info, 0, sizeof(struct multiboot_info));
+    INIT_LIST_HEAD(&(naut->sys.mb_info->mod_list));
 
+    
+    /* zjp:
+     * With pisces co-kernel, acpi should be disabled
+     */
+#if 0
     nk_acpi_init();
+#endif
+    disable_acpi();
 
     /* enumerate CPUs and initialize them */
     smp_early_init(naut);
@@ -365,7 +383,11 @@ init (unsigned long mbd,
 
     sysinfo_init(&(naut->sys));
 
-    ioapic_init(&(naut->sys));
+    
+    /* zjp:
+     * With pisces co-kernel, we do not init ioapic
+     */
+    //ioapic_init(&(naut->sys));
 
     nk_wait_queue_init();
     
