@@ -678,6 +678,19 @@ user_typed (char * buf, void * priv, int offset)
     return skipped;
 }
 
+/* zjp
+ * With pisces, nautilus-shell gets input from xbuf rather than keyboard. 
+ * TODO: this is just a test. Need a better design.
+ */
+#ifdef NAUT_CONFIG_PISCES
+#include <nautilus/waitqueue.h>
+nk_wait_queue_t pisces_waitq; // hold shell until xbuf receives a shell cmd (string)
+char* pisces_buf = NULL; // a buffer to store the received string 
+static int check_pisces_buf_cond(void *state) {
+    // always wait 
+    return 0;
+}
+#endif 
 
 static void 
 shell (void * in, void ** out)
@@ -726,12 +739,24 @@ shell (void * in, void ** out)
         }
     }
 
+#ifdef NAUT_CONFIG_PISCES
+    pisces_buf = malloc(SHELL_MAX_CMD);
+    nk_wait_queue_initialize(&(pisces_waitq), NULL);
+#endif
+
     while (1) {  
 
         nk_vc_setattr(PROMPT_CHAR);
         nk_vc_printf("%s> ", (char*)in);
         nk_vc_setattr(INPUT_CHAR);
+#ifdef NAUT_CONFIG_PISCES
+        // get buf from xbuf
+        nk_wait_queue_sleep_extended(&pisces_waitq, check_pisces_buf_cond, pisces_buf);
+        strncpy(buf, pisces_buf, SHELL_MAX_CMD);
+        nk_vc_printf("%s> %s\n", (char*)in, buf);
+#else
         nk_vc_gets(buf, SHELL_MAX_CMD, 1, user_typed, state);
+#endif
         nk_vc_setattr(OUTPUT_CHAR);
 
         if (shell_handle_cmd(state, buf, SHELL_MAX_CMD) == 1) { 
@@ -742,6 +767,10 @@ shell (void * in, void ** out)
     }
 
     nk_vc_printf("Exiting shell %s\n", (char*)in);
+
+#ifdef NAUT_CONFIG_PISCES
+    free(pisces_buf);
+#endif
 
 out:
     free(in);

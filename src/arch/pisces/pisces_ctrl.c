@@ -8,6 +8,10 @@
 #include <nautilus/math.h>
 //#include <arch/pisces/pisces_file.h>
 
+#include <nautilus/shell.h>
+extern char* pisces_buf;
+extern nk_wait_queue_t pisces_waitq;
+
 #ifndef NAUT_CONFIG_DEBUG_PISCES_CTRL
 #undef DEBUG_PRINT
 #define DEBUG_PRINT(fmt, args...) 
@@ -36,7 +40,18 @@ cmd_handler(u8    * data,
     switch(cmd->cmd) {
         case ENCLAVE_CMD_NAUTILUS_CMD: {
             struct cmd_nautilus_cmd *nautilus_cmd = (struct cmd_nautilus_cmd *)cmd;
-            printk("Receive cmd %s!\n", nautilus_cmd->cmd);
+            //printk("Receive cmd %s!\n", nautilus_cmd->cmd);
+            /* zjp
+             * nautilus-shell will keep waiting until xbuf receives this cmd from pisces 
+             * TODO: this is just a test. Need a better design.
+             */
+            if(pisces_buf == NULL) {
+                printk("Error: pisces_buf is not initialized when issuing cmd %s !\n", nautilus_cmd->cmd);
+                break;
+            }
+            strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
+            // wakeup nautilus' shell
+            nk_wait_queue_wake_all_extended(&(pisces_waitq), 1);
             break;
         }
         case ENCLAVE_CMD_ADD_MEM: {
