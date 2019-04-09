@@ -4,10 +4,8 @@
 
 #include <nautilus/nautilus.h>
 #include <nautilus/naut_types.h>
-#include "pisces_boot_params.h"
+#include <arch/pisces/pisces_boot_params.h>
 #include "pisces_lock.h"
-
-extern struct pisces_boot_params * pisces_boot_params;
 
 // Embedded ringbuffer that maps into a 64KB chunk of memory
 struct pisces_cons_ringbuf {

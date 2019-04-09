@@ -1,7 +1,5 @@
 #include <nautilus/nautilus.h>
-#include "pisces_boot_params.h"
-
-struct pisces_boot_params * pisces_boot_params = NULL;
+#include <arch/pisces/pisces_boot_params.h>
 
 extern int pisces_console_init(void);
 

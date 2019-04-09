@@ -5,15 +5,10 @@
 #ifndef _PISCES_BOOT_PARAMS_H_
 #define _PISCES_BOOT_PARAMS_H_
 
-
 typedef unsigned long long u64;
 typedef unsigned char u8;
 
-
-
 #define PISCES_MAGIC 0x000FE110
-
-struct pisces_enclave;
 
 /* Pisces Boot loader memory layout
 
@@ -99,11 +94,7 @@ struct pisces_boot_params {
 
     u64 base_mem_paddr;
     u64 base_mem_size;
-
-
 } __attribute__((packed));
 
-
-int setup_boot_params(struct pisces_enclave * enclave);
-
+extern struct pisces_boot_params *pisces_boot_params;
 #endif
