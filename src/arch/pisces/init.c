@@ -151,6 +151,9 @@
 #include <rt/nesl/nesl.h>
 #endif
 
+#include <arch/pisces/pisces_boot_params.h>
+struct pisces_boot_params *pisces_boot_params = NULL;
+extern int pisces_console_init(void);
 
 extern spinlock_t printk_lock;
 
@@ -271,6 +274,14 @@ init (unsigned long mbd,
       unsigned long magic)
 {
     struct naut_info * naut = &nautilus_info;
+
+    /* zjp:
+     * Pisces' launch_code_esi == ( bootmem_addr_pa >> PAGE_SHIFT )
+     */
+    pisces_boot_params =  (struct pisces_boot_params*)(mbd << PAGE_SHIFT_4KB);
+    
+    pisces_boot_params->initialized = 1;
+    pisces_console_init();
 
 
      // At this point, we have no FPU, so we need to be
