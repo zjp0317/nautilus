@@ -26,6 +26,8 @@
 #include <nautilus/macros.h>
 #include <nautilus/multiboot2.h>
 
+#include <arch/pisces/pisces_boot_params.h>
+
 extern char * mem_region_types[6];
 
 #ifndef NAUT_CONFIG_DEBUG_BOOTMEM
@@ -49,12 +51,60 @@ arch_reserve_boot_regions (unsigned long mbd)
 #endif
 }
 
-
 void
 arch_detect_mem_map (mmap_info_t * mm_info, 
                      mem_map_entry_t * memory_map,
                      unsigned long mbd)
 {
+    /* zjp
+     * If mem from pisces is 0x8000000 ~ 0x10000000,
+     * then mark 0x0~0x8000000 as BADRAM, and 0x8000000 ~ 0x10000000 as AVAILABLE.
+     * TODO:
+     *   Elimnate unnecessary map on 0x0~0x8000000.
+     *   This is related to page_map implementation.
+     */
+    int n = 0; // index for memory_map[]
+    uint64_t addr = 0;
+    uint64_t base_mem_end = pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size;
+    /* keep filling memory_map till the end of base_mem */
+    for(n = 0; addr < base_mem_end; n++) {
+        if (n > MAX_MMAP_ENTRIES) {
+            panic("Reached memory region limit!\n");
+        }
+        uint64_t len;
+        uint32_t type;
+        if(addr < pisces_boot_params->base_mem_paddr) {
+            len = pisces_boot_params->base_mem_paddr;
+            type = MULTIBOOT_MEMORY_BADRAM;
+        } else {
+            len = pisces_boot_params->base_mem_size;
+            type = MULTIBOOT_MEMORY_AVAILABLE;
+            mm_info->usable_ram += len;
+        }
+        memory_map[n].addr = addr;
+        memory_map[n].len  = len;
+        memory_map[n].type = type;
+        addr += len; 
+        BMM_PRINT("Memory map[%d] - [%p - %p] <%s>\n",
+                n,
+                memory_map[n].addr,
+                memory_map[n].addr + memory_map[n].len,
+                mem_region_types[memory_map[n].type]);
+
+        if (addr > (mm_info->last_pfn << PAGE_SHIFT)) {
+            mm_info->last_pfn = addr >> PAGE_SHIFT;
+        }
+
+        mm_info->total_mem += memory_map[n].len;
+
+        ++mm_info->num_regions;
+    }
+    return;
+
+    /* zjp
+     * The old code is based on multiboot. Keep it for reference.
+     */
+#if 0
     struct multiboot_tag * tag;
     uint32_t n = 0;
 
@@ -111,5 +161,6 @@ arch_detect_mem_map (mmap_info_t * mm_info,
         ++n;
         ++mm_info->num_regions;
     }
+#endif
 }
 
