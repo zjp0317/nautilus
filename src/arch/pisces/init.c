@@ -154,6 +154,7 @@
 #include <arch/pisces/pisces_boot_params.h>
 struct pisces_boot_params *pisces_boot_params = NULL;
 extern int pisces_console_init(void);
+extern int pisces_ctrl_init();
 
 extern spinlock_t printk_lock;
 
@@ -557,6 +558,11 @@ init (unsigned long mbd,
 #endif
 
     nk_launch_shell("root-shell",0,0,0);
+
+    /* zjp: 
+     * Init pisces xbuf and handler to handle commands from pisces.
+     */
+    pisces_ctrl_init();
 
     runtime_init();
 

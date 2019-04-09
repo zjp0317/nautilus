@@ -51,17 +51,35 @@ static struct list_head wq_list;
 #define STATE_LOCK() _state_lock_flags = spin_lock_irq_save(&state_lock)
 #define STATE_UNLOCK() spin_unlock_irq_restore(&state_lock, _state_lock_flags);
 
-
+#ifdef NAUT_CONFIG_PISCES
+void nk_wait_queue_initialize(nk_wait_queue_t *q, char* name)
+{
+    STATE_LOCK_CONF;
+    memset(q,0,sizeof(*q));
+    if (name) {
+        strncpy(q->name,name,NK_WAIT_QUEUE_NAME_LEN);
+        q->name[NK_WAIT_QUEUE_NAME_LEN-1] = 0;
+    } else {
+        snprintf(q->name,NK_WAIT_QUEUE_NAME_LEN,"waitqueue%lu",__sync_fetch_and_add(&count,1));
+    }
+    INIT_LIST_HEAD(&q->list);
+    INIT_LIST_HEAD(&q->node);
+    spinlock_init(&q->lock);
+    STATE_LOCK();
+    list_add_tail(&q->node,&wq_list);
+    STATE_UNLOCK();
+}
+#endif
 
 nk_wait_queue_t *nk_wait_queue_create(char *name)
 {
     nk_wait_queue_t *q = malloc(sizeof(*q));
     if (q) {
-	STATE_LOCK_CONF;
-	memset(q,0,sizeof(*q));
-	if (name) {
-	    strncpy(q->name,name,NK_WAIT_QUEUE_NAME_LEN);
-	    q->name[NK_WAIT_QUEUE_NAME_LEN-1] = 0;
+        STATE_LOCK_CONF;
+        memset(q,0,sizeof(*q));
+        if (name) {
+            strncpy(q->name,name,NK_WAIT_QUEUE_NAME_LEN);
+            q->name[NK_WAIT_QUEUE_NAME_LEN-1] = 0;
 	} else {
 	    snprintf(q->name,NK_WAIT_QUEUE_NAME_LEN,"waitqueue%lu",__sync_fetch_and_add(&count,1));
 	}

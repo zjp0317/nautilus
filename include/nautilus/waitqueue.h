@@ -97,6 +97,9 @@ typedef struct nk_wait_queue {
 nk_wait_queue_t *nk_wait_queue_create(char *name);
 void             nk_wait_queue_destroy(nk_wait_queue_t *q);
 
+#ifdef NAUT_CONFIG_PISCES
+void nk_wait_queue_initialize(nk_wait_queue_t *q, char* name);
+#endif
 
 static inline nk_wait_queue_entry_t *nk_wait_queue_alloc_entry(nk_wait_queue_t *q, nk_thread_t *t)
 {

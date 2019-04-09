@@ -8,5 +8,7 @@ obj-y += asm/ \
 		main.o \
 		shutdown.o \
 		smp.o \
-		early_mem.o 
+		early_mem.o \
+        pisces_ctrl.o \
+        pisces_xbuf.o
 		
