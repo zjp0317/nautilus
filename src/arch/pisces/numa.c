@@ -370,6 +370,17 @@ acpi_parse_slit(struct acpi_table_header *table, void * arg)
 int 
 arch_numa_init (struct sys_info * sys)
 {
+    /* zjp
+     * Currently, just directly set num of numa domains to 0.
+     * All mem regions given at boot-time will be coalesced into a single domain.
+     */
+    NUMA_PRINT("Skip parsing ACPI NUMA information...\n");
+    sys->locality_info.num_domains = 0;
+    return 0;
+    /* zjp
+     * keep old code for reference
+     */
+#if 0
     NUMA_PRINT("Parsing ACPI NUMA information...\n");
 
     /* SLIT: System Locality Information Table */
@@ -413,4 +424,5 @@ arch_numa_init (struct sys_info * sys)
     NUMA_PRINT("DONE.\n");
 
     return 0;
+#endif
 }
