@@ -30,6 +30,8 @@
 #include <nautilus/numa.h>
 #include <nautilus/cpu.h>
 
+#include <arch/pisces/pisces_boot_params.h>
+
 #ifndef NAUT_CONFIG_DEBUG_SMP
 #undef DEBUG_PRINT
 #define DEBUG_PRINT(fmt, args...)
@@ -767,6 +769,43 @@ static int __acpi_configure_legacy(struct naut_info * naut)
 int 
 arch_early_init (struct naut_info * naut)
 {
+    /* zjp
+     * Init cpu based on pisces_boot_params rather than parsing MADT
+     * TODO:
+     *   Currently only handle one-cpu. Need to support dynamical add/removal
+     */
+    struct sys_info * sys = &naut->sys;
+
+    sys->flags |= NK_SYS_LEGACY;
+
+    // lapic
+    if (sys->num_cpus == NAUT_CONFIG_MAX_CPUS) {
+        panic("CPU count exceeded max (check your .config)\n");
+    }
+    struct cpu * new_cpu = NULL;
+    if (!(new_cpu = mm_boot_alloc(sizeof(struct cpu)))) {
+        panic("Couldn't allocate CPU struct\n");
+    }
+    memset(new_cpu, 0, sizeof(struct cpu));
+
+    new_cpu->id         = sys->num_cpus;
+    new_cpu->lapic_id   = pisces_boot_params->apic_id;
+    new_cpu->enabled    = 1;
+    new_cpu->cpu_sig    = 0;
+    new_cpu->feat_flags = 0;
+    new_cpu->system     = sys;
+    new_cpu->cpu_khz    = nk_detect_cpu_freq(new_cpu->id);
+    new_cpu->is_bsp     = (new_cpu->id == 0 ? 1 : 0);//(new_cpu->lapic_id == 0 ? 1 : 0);
+    spinlock_init(&new_cpu->lock);
+    sys->cpus[sys->num_cpus] = new_cpu;
+    sys->num_cpus++;
+    // skip xapic?
+    return 0;
+
+    /* zjp
+     * Keep the old code for reference.
+     */
+#if 0
 	int ret;
 
 	SMP_DEBUG("Checking for MADT\n");
@@ -797,4 +836,5 @@ arch_early_init (struct naut_info * naut)
 out_ok:
     SMP_PRINT("Detected %u CPUs\n", naut->sys.num_cpus);
 	return 0;
+#endif
 }
