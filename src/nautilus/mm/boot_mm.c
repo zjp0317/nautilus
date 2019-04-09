@@ -598,7 +598,14 @@ mm_boot_kmem_cleanup (void)
 
     BMM_PRINT("    [Boot page tables and stack]     (%0lu.%02u MB)\n", PAGE_SIZE_4KB*3/1000000, PAGE_SIZE_4KB%1000000);
 
+    /* zjp:
+     * With pisces, the physcial mem actually starts from bootmem_addr_pa (pisces_boot_params)
+     */
+#ifdef NAUT_CONFIG_PISCES
+    ulong_t pml4_addr = (ulong_t)&pml4 + (ulong_t)pisces_boot_params; 
+#else
     ulong_t pml4_addr = (ulong_t)&pml4; 
+#endif
     if (is_usable_ram(va_to_pa(pml4_addr), 
                 PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB)) { 
         kmem_add_memory(kmem_get_region_by_addr(va_to_pa(pml4_addr)), 
