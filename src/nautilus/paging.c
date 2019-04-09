@@ -49,6 +49,10 @@
 #define DEBUG_PRINT(fmt, args...)
 #endif
 
+#ifdef NAUT_CONFIG_PISCES
+#include <arch/pisces/pisces_boot_params.h>
+extern addr_t _loadStart;
+#endif
 
 extern uint8_t boot_mm_inactive;
 
@@ -422,7 +426,21 @@ __fill_pd (pde_t * pd,
     for (i = 0; i < nents; i++) {
 
         if (ps == PS_2M) {
+            /* zjp:
+             * The mem that holds the kernel code / data should be offset mapping.
+             * Everything else is identity mapping.
+             */
+#ifdef NAUT_CONFIG_PISCES
+            // This calculation may be repeated multiple times but will not affect perforamance that much.
+            ulong_t kernel_start_page = round_up((ulong_t)&_loadStart, PAGE_SIZE_2MB);
+            ulong_t kernel_end_page = round_up(kernel_start_page + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
+            // check if need offset mapping
+            pd[i] = (base_addr <= kernel_end_page && base_addr >= kernel_start_page) ?
+                (base_addr + (uint64_t)pisces_boot_params) : base_addr;
+            pd[i] |= flags | PTE_PAGE_SIZE_BIT;
+#else
             pd[i] = base_addr | flags | PTE_PAGE_SIZE_BIT;
+#endif
         } else {
             pte_t * pt = NULL;
             pt = mm_boot_alloc_aligned(PAGE_SIZE_4KB, PAGE_SIZE_4KB);
