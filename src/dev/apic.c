@@ -1248,7 +1248,15 @@ static void calibrate_apic_timer(struct apic_dev *apic)
 {
 
 #ifndef NAUT_CONFIG_APIC_TIMER_CALIBRATE_INDEPENDENTLY
+#ifdef NAUT_CONFIG_PISCES
+    /* zjp
+     * This is just a temporary fix to identify the bsp
+     * TODO: store the bsp somewhere, maybe directly inside sys
+     */
+    if(apic != nautilus_info.sys.cpus[0]->apic) {
+#else
     if (!apic_is_bsp(apic)) {
+#endif
 	// clone core bsp, assuming it is already up
 	//extern struct naut_info nautilus_info;
 	struct apic_dev *bsp_apic = nautilus_info.sys.cpus[0]->apic;
