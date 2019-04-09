@@ -127,11 +127,6 @@ GLOBAL(pisces_boot_start)
     movb %dl, 7(%rbx)
     movq %rbp, 8(%rbx)
 
-#if 0
-    test:
-        hlt
-        jmp test
-
 
     /* enable PAE */
     movq %cr4, %rax
@@ -157,13 +152,15 @@ GLOBAL(pisces_boot_start)
 
     movq %rax, %cr0
 
+    /* now our long mode GDT */
+    movl $gdtr64, %eax
+    lgdt (%eax)
+
     /* done setting up paging */
     movq $0x10, %rax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %ss
-
-#endif
 
     movq $boot_stack_end, %rsp
 
@@ -171,13 +168,9 @@ GLOBAL(pisces_boot_start)
     pushq $0
     popfq
 
-    // N -> P
-    movb $0x50, (%rbx)
-
     /* real mode crap is in rsi still */
-    movq $pisces_go, %rax
     movq %rsi, %rdi
-    movq $0, %rbp
+    movq $main, %rax
     callq *%rax
 
     /* shouldn't get here */
