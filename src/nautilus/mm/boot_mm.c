@@ -587,26 +587,27 @@ mm_boot_kmem_cleanup (void)
 
     BMM_PRINT("    [Boot alloc. page map] (%0lu.%02lu MB)\n", bootmem.pm_len/1000000, bootmem.pm_len%1000000);
     if (is_usable_ram(va_to_pa((ulong_t)bootmem.page_map),bootmem.pm_len)) {
-	kmem_add_memory(kmem_get_region_by_addr(va_to_pa((ulong_t)bootmem.page_map)),
-			va_to_pa((ulong_t)bootmem.page_map), 
-			bootmem.pm_len);
-	count += bootmem.pm_len;
+        kmem_add_memory(kmem_get_region_by_addr(va_to_pa((ulong_t)bootmem.page_map)),
+                va_to_pa((ulong_t)bootmem.page_map), 
+                bootmem.pm_len);
+        count += bootmem.pm_len;
     } else {
-	ERROR_PRINT("Skipping reclaim of boot page map as memory is not usable: %p (%p bytes) - Likely memory map / SRAT mismatch\n",va_to_pa((ulong_t)bootmem.page_map),bootmem.pm_len);
+        ERROR_PRINT("Skipping reclaim of boot page map as memory is not usable: %p (%p bytes) - Likely memory map / SRAT mismatch\n",va_to_pa((ulong_t)bootmem.page_map),bootmem.pm_len);
     }
 
 
     BMM_PRINT("    [Boot page tables and stack]     (%0lu.%02u MB)\n", PAGE_SIZE_4KB*3/1000000, PAGE_SIZE_4KB%1000000);
-    
-    if (is_usable_ram(va_to_pa((ulong_t)(&pml4)), 
-		      PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB)) { 
-	kmem_add_memory(kmem_get_region_by_addr(va_to_pa((ulong_t)&pml4)), 
-			va_to_pa((ulong_t)(&pml4)), 
-			PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB);
-	
-	count += PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB;
+
+    ulong_t pml4_addr = (ulong_t)&pml4; 
+    if (is_usable_ram(va_to_pa(pml4_addr), 
+                PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB)) { 
+        kmem_add_memory(kmem_get_region_by_addr(va_to_pa(pml4_addr)), 
+                va_to_pa(pml4_addr), 
+                PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB);
+
+        count += PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB;
     } else {
-	ERROR_PRINT("Skipping reclaim of boot page tables and stack as memory is not usable: %p (%p bytes) - Likely memory map / SRAT mismatch\n",va_to_pa((ulong_t)(&pml4)), PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB);
+        ERROR_PRINT("Skipping reclaim of boot page tables and stack as memory is not usable: %p (%p bytes) - Likely memory map / SRAT mismatch\n",va_to_pa(pml4_addr), PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB);
     }
 
     BMM_PRINT("    =======\n");
@@ -615,5 +616,5 @@ mm_boot_kmem_cleanup (void)
     BMM_PRINT("    Boot allocation range: %p-%p\n",(void*)addr_low, (void*)addr_high);
 
     kmem_inform_boot_allocation((void*)addr_low,(void*)addr_high);
-   
+
 }
