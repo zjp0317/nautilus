@@ -26,29 +26,61 @@
 #include <nautilus/naut_types.h>
 #include <nautilus/spinlock.h>
 
-struct buddy_mempool {
-    ulong_t    base_addr;    /** base address of the memory pool */
-    ulong_t    pool_order;   /** size of memory pool = 2^pool_order */
-    ulong_t    min_order;    /** minimum allocatable block size */
+struct buddy_memzone {
+    ulong_t     max_order;      /* max size of memory pool = 2^max_order */
+    ulong_t     min_order;      /* minimum allocatable block size */
 
-    ulong_t    num_blocks;   /** number of bits in tag_bits */
-    ulong_t    *tag_bits;    /** one bit for each 2^min_order block
-                                    *   0 = block is allocated
-                                    *   1 = block is available
-                                    */
+    uint_t      node_id;        /* The NUMA node this zone allocates */
 
-    struct list_head *avail;       /** one free list for each block size,
-                                    * indexed by block order:
-                                    *   avail[i] = free list of 2^i blocks
-                                    */
+    ulong_t     num_pools;
 
-    spinlock_t lock;
+    struct list_head * avail;   /* one free list for each block size,
+                                 * indexed by block order:
+                                 *   avail[i] = free list of 2^i 
+                                 */
+
+    spinlock_t  lock;           /* For now we will lock all zone operations...
+                                 *   Hopefully this does not cause a performance 
+                                 */
+
+    struct list_head mempools;  /* since we have hash for pools, we don't need rbtree */
 };
 
-struct buddy_mempool * buddy_init(ulong_t base_addr, ulong_t pool_order, ulong_t min_order);
+struct buddy_mempool {
+    ulong_t    base_addr;       /* base address of the memory pool */
+    ulong_t    pool_order;      /* size of memory pool = 2^pool_order */
+    ulong_t    min_order;       /* minimum allocatable block size */
 
-void buddy_free(struct buddy_mempool * mp, void * addr, ulong_t order);
-void * buddy_alloc(struct buddy_mempool * mp, ulong_t order);
+    ulong_t    num_blocks;      /* number of bits in tag_bits */
+    ulong_t    num_free_blocks;
+
+    ulong_t    *tag_bits;       /* one bit for each 2^min_order block:
+                                 *   0 = block is allocated
+                                 *   1 = block is available 
+                                 */
+    ulong_t    *order_bits;     /* one bit for each 2^min_order block:
+                                 *   only the last block is set 
+                                 * Traverse the order bits till an '1' to get the order value. 
+                                 */
+                                    
+    ulong_t    *flag_bits;      /* Since nautilus currently only has one flag: VISITED,
+                                 * one bit for each 2^min_order block: 
+                                 *    1 = block is VISITED
+                                 */
+
+    struct buddy_memzone * zone;
+    
+    struct list_head link;
+};
+
+struct buddy_memzone * buddy_init (uint_t node_id, ulong_t max_order, ulong_t min_order);
+
+struct buddy_mempool * buddy_init_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
+
+inline ulong_t get_block_order (struct buddy_mempool *mp, void *block);
+
+void buddy_free (struct buddy_mempool * mp, void * addr, ulong_t order);
+void * buddy_alloc (struct buddy_memzone * zone, ulong_t order);
 
 int  buddy_sanity_check(struct buddy_mempool *mp);
 

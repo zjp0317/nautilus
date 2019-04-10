@@ -36,6 +36,8 @@ struct numa_domain {
     uint64_t addr_space_size;
     uint32_t num_regions;
 
+    struct buddy_memzone* zone;
+
     struct list_head regions;
 
     /* list of other domains, ordered by distance */
