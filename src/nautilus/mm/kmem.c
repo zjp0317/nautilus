@@ -71,12 +71,6 @@
  */
 #define MIN_ORDER   5  /* 32 bytes */
 
-// The factor by which to reduce the hash table size
-// next_prime(total_mem >> 5 / BLOAT) is the maximum number of
-// blocks we can allocate with malloc
-#define BLOAT  1024
-
-
 /**
  *  * Total number of bytes in the kernel memory pool.
  *   */
@@ -125,31 +119,6 @@ struct kmem_unit_hdr {
 
 static struct kmem_unit_hdr * unit_hash_entries=0;
 static uint64_t               unit_hash_num_entries=0;
-
-// roughly power-of-two primes
-static const uint64_t primes[] = 
-{ 
-    53, 97, 193, 389,
-    769, 1543, 3079, 6151,
-    12289, 24593, 49157, 98317,
-    196613, 393241, 786433, 1572869,
-    3145739, 6291469, 12582917, 25165843,
-    50331653, 100663319, 201326611, 402653189,
-    805306457, 1610612741 
-};
-
-static uint64_t next_prime(uint64_t n)
-{
-  uint64_t i;
-  for (i=0;i<sizeof(primes)/sizeof(primes[0]);i++) {
-    if (primes[i]>=n) { 
-      return primes[i];
-    }
-  }
-  KMEM_DEBUG("next_prime: %lu is too big, returning maximum prime in table (%lu)\n",primes[i-1]);
-
-  return primes[i-1];
-}
 
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
