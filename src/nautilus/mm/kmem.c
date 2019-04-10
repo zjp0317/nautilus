@@ -93,26 +93,38 @@ static unsigned long kmem_bytes_allocated = 0;
 static struct list_head glob_zone_list;
 
 
-/**
- * Each block of memory allocated from the kernel memory pool has 
- * associated with it one of these structures.   The structure 
- * maps the address handed out by malloc to the order of the block
- * that was allocated and the buddy allocator that provided the
- * block 
+/* zjp:
+ * We organize the kernel memory as a set of 'units'. 
+ * Each unit has associated with it one kmem_unit_hdr entry by hash.
+ * --Hash key is the starting address of unit.
+ * --Hash value is the associated kmem_unit_hdr entry.
+ * Each hasn entry stores a pointer to the corresponding buddy_mempool.
+ * Each buddy_mempool structure stores tag-bits, order-bits, and flags for all blocks.
  */
-struct kmem_block_hdr {
-    void *   addr;   /* address of block */
-    uint64_t order;  /* order of the block allocated from buddy system */
-                     /* order>=MIN_ORDER => in use, safe to examine */
-                     /* order==0 => unallocated header */
-                     /* order==1 => allocation in progress, unsafe */
-    struct buddy_mempool * zone; /* zone to which this block belongs */
-    uint64_t flags;  /* flags for this allocated block */
+#define KMEM_UNIT_SIZE  0x8000000ULL    // unit size: 128MB
+#define KMEM_UNIT_MASK  (~(KMEM_UNIT_SIZE - 1))
+#define KMEM_UNIT_NUM   0x2000ULL       // support 8K discontinous units 
+struct kmem_unit_hdr {
+    /*
+     * Intuitively, unit_addr is the start address of each 128M unit ( 128M-aligned ) 
+     * BUT, such start address can be 0x0. So, we use the last bit as an 'offset',
+     * such that, the actual unit_addr for address 0x0 is 0x1, and unit_addr for 0x8000000 is 0x8000001.
+     * In addition, unit_addr == 0x0 can be used to indicate a free entry 
+     */   
+    union {
+        uint64_t unit_addr; 
+
+        struct {
+            uint64_t offset_bit: 1; 
+            uint64_t rsvd : 63;
+        } __attribute__((packed));
+    } __attribute__((packed));
+
+    struct buddy_mempool * mempool; /* address of zone to which this block belongs */
 } __packed __attribute((aligned(8)));
 
-
-static struct kmem_block_hdr *block_hash_entries=0;
-static uint64_t               block_hash_num_entries=0;
+static struct kmem_unit_hdr * unit_hash_entries=0;
+static uint64_t               unit_hash_num_entries=0;
 
 // roughly power-of-two primes
 static const uint64_t primes[] = 
@@ -139,104 +151,121 @@ static uint64_t next_prime(uint64_t n)
   return primes[i-1];
 }
 
-static int block_hash_init(uint64_t bytes)
+/* zjp:
+ * Init the unit hash map with capacity = KMEM_UNIT_NUM
+ */
+static int unit_hash_init()
 {
-  uint64_t num_entries = next_prime((bytes >> MIN_ORDER) / BLOAT);
-  uint64_t entry_size = sizeof(*block_hash_entries);
-  
-  KMEM_DEBUG("block_hash_init with %lu entries each of size %lu bytes (%lu bytes)\n",
-	     num_entries, entry_size, num_entries*entry_size);
+    uint64_t num_entries = KMEM_UNIT_NUM;
+    uint64_t entry_size = sizeof(*unit_hash_entries);
 
-  block_hash_entries = mm_boot_alloc(num_entries*entry_size);
+    KMEM_DEBUG("unit_hash_init with %lu entries each of size %lu bytes (%lu bytes)\n",
+            num_entries, entry_size, num_entries*entry_size);
 
-  if (!block_hash_entries) { 
-    KMEM_ERROR("block_hash_init failed\n");
-    return -1;
-  }
+    unit_hash_entries = mm_boot_alloc(num_entries*entry_size);
 
-  memset(block_hash_entries,0,num_entries*entry_size);
-  
-  block_hash_num_entries = num_entries;
-
-  return 0;
-}
-
-static inline uint64_t block_hash_hash(const void *ptr)
-{
-  uint64_t n = ((uint64_t) ptr)>>MIN_ORDER;
-
-  n =  n ^ (n>>1) ^ (n<<2) ^ (n>>3) ^ (n<<5) ^ (n>>7)
-    ^ (n<<11) ^ (n>>13) ^ (n<<17) ^ (n>>19) ^ (n<<23) 
-    ^ (n>>29) ^ (n<<31) ^ (n>>37) ^ (n<<41) ^ (n>>43)
-    ^ (n<<47) ^ (n<<53) ^ (n>>59) ^ (n<<61);
-
-  n = n % block_hash_num_entries;
-
-  KMEM_DEBUG("hash of %p returns 0x%lx\n",ptr, n);
-  
-  return n;
-}
-    
-static inline struct kmem_block_hdr * block_hash_find_entry(const void *ptr)
-{
-  uint64_t i;
-  uint64_t start = block_hash_hash(ptr);
-  
-  for (i=start;i<block_hash_num_entries;i++) { 
-    if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
-      KMEM_DEBUG("Find entry scanned %lu entries\n", i-start+1);
-      return &block_hash_entries[i];
+    if (!unit_hash_entries) { 
+        KMEM_ERROR("unit_hash_init failed\n");
+        return -1;
     }
-  }
-  for (i=0;i<start;i++) { 
-    if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
-      KMEM_DEBUG("Find entry scanned %lu entries\n", block_hash_num_entries-start + i + 1);
-      return &block_hash_entries[i];
-    }
-  }
-  return 0;
-}
 
-static inline struct kmem_block_hdr * block_hash_alloc(void *ptr)
-{
-  uint64_t i;
-  uint64_t start = block_hash_hash(ptr);
-  
-  for (i=start;i<block_hash_num_entries;i++) { 
-    if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
-      KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
-      return &block_hash_entries[i];
-    }
-  }
-  for (i=0;i<start;i++) { 
-    if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
-      KMEM_DEBUG("Allocation scanned %lu entries\n", block_hash_num_entries-start + i + 1);
-      return &block_hash_entries[i];
-    }
-  }
-  return 0;
-}
+    memset(unit_hash_entries,0,num_entries*entry_size);
 
-static inline void block_hash_free_entry(struct kmem_block_hdr *b)
-{
-  b->addr = 0;
-  b->zone = 0;
-  b->flags = 0;
-  __sync_fetch_and_and (&b->order,0);
-}
+    unit_hash_num_entries = num_entries;
 
-static inline int block_hash_free(void *ptr)
-{
-  struct kmem_block_hdr *b = block_hash_find_entry(ptr);
-
-  if (!b) { 
-    return -1;
-  } else {
-    block_hash_free_entry(b);
     return 0;
-  }
 }
 
+/* zjp
+ * Hash on start address of each unit.
+ */
+static inline uint64_t unit_hash_hash(const void *ptr)
+{
+    uint64_t n = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
+
+    n =  n ^ (n>>1) ^ (n<<2) ^ (n>>3) ^ (n<<5) ^ (n>>7)
+        ^ (n<<11) ^ (n>>13) ^ (n<<17) ^ (n>>19) ^ (n<<23) 
+        ^ (n>>29) ^ (n<<31) ^ (n>>37) ^ (n<<41) ^ (n>>43)
+        ^ (n<<47) ^ (n<<53) ^ (n>>59) ^ (n<<61);
+
+    n = n % unit_hash_num_entries;
+
+    KMEM_DEBUG("hash of %p returns 0x%lx\n",ptr, n);
+
+    return n;
+}
+
+/* zjp
+ * Find the hash entry given an address 
+ */
+static inline struct kmem_unit_hdr * unit_hash_find_entry(const void *ptr)
+{
+  uint64_t i;
+  uint64_t unit_start = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
+  unit_start |= 0x1; // set the "offset bit" 
+  uint64_t start = unit_hash_hash(ptr);
+  
+  for (i = start; i < unit_hash_num_entries; i++) { 
+      //if (unit_hash_entries[i].unit_addr == unit_start) {
+      if (unit_hash_entries[i].unit_addr == unit_start && unit_hash_entries[i].mempool != NULL) {
+          KMEM_DEBUG("Find entry scanned %lu entries\n", i-start+1);
+          return &unit_hash_entries[i];
+      }
+  }
+  for (i = 0; i < start; i++) { 
+      //if (unit_hash_entries[i].unit_addr == unit_start) {
+      if (unit_hash_entries[i].unit_addr == unit_start && unit_hash_entries[i].mempool != NULL) {
+          KMEM_DEBUG("Find entry scanned %lu entries\n", i-start+1);
+          return &unit_hash_entries[i];
+      }
+  }
+  return 0;
+}
+
+/* zjp
+ * Alloc a hash entry for a new unit.
+ * This can only happen when there's a new unit, e.g., pisces adds a new chunk of mem.
+ * Allocating a block will not use this function!
+ */
+static inline struct kmem_unit_hdr * unit_hash_alloc(void *ptr)
+{
+  uint64_t i;
+  uint64_t unit_start = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
+  unit_start |= 0x1; // set the "offset bit" 
+  uint64_t start = unit_hash_hash(ptr);
+  
+  for (i = start; i < unit_hash_num_entries; i++) { 
+      if (__sync_bool_compare_and_swap(&unit_hash_entries[i].unit_addr, 0, unit_start)) {
+          KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
+          return &unit_hash_entries[i];
+      }
+  }
+  for (i = 0; i < start; i++) { 
+      if (__sync_bool_compare_and_swap(&unit_hash_entries[i].unit_addr, 0, unit_start)) {
+          KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
+          return &unit_hash_entries[i];
+      }
+  }
+  return 0;
+}
+
+static inline void unit_hash_free_entry(struct kmem_unit_hdr *u)
+{
+    u->mempool = NULL;
+    __sync_fetch_and_and (&u->unit_addr, 0);
+}
+
+static inline int unit_hash_free(void *ptr)
+{
+    struct kmem_unit_hdr *u = unit_hash_find_entry(ptr);
+
+    if (!u) { 
+        return -1;
+    } else {
+        unit_hash_free_entry(u);
+        return 0;
+    }
+}
 
 struct mem_region *
 kmem_get_base_zone (void)
