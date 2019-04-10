@@ -520,7 +520,7 @@ add_free_pages (struct mem_region * region)
             for (m = 1; m && i < end_pfn; m <<= 1, addr += PAGE_SIZE, i++) {
                 if (v & m) {
 		    if (is_usable_ram(addr,PAGE_SIZE)) { 
-			kmem_add_memory(region, addr, PAGE_SIZE);
+			kmem_add_memory(kmem_get_mempool_by_addr(addr), addr, PAGE_SIZE);
 			++count;
 		    } else {
 			ERROR_PRINT("Skipping addition of memory at %p (%p bytes) - Likely memory map / SRAT mismatch\n",addr,PAGE_SIZE);
@@ -587,7 +587,7 @@ mm_boot_kmem_cleanup (void)
 
     BMM_PRINT("    [Boot alloc. page map] (%0lu.%02lu MB)\n", bootmem.pm_len/1000000, bootmem.pm_len%1000000);
     if (is_usable_ram(va_to_pa((ulong_t)bootmem.page_map),bootmem.pm_len)) {
-        kmem_add_memory(kmem_get_region_by_addr(va_to_pa((ulong_t)bootmem.page_map)),
+        kmem_add_memory(kmem_get_mempool_by_addr(va_to_pa((ulong_t)bootmem.page_map)),
                 va_to_pa((ulong_t)bootmem.page_map), 
                 bootmem.pm_len);
         count += bootmem.pm_len;
@@ -608,7 +608,7 @@ mm_boot_kmem_cleanup (void)
 #endif
     if (is_usable_ram(va_to_pa(pml4_addr), 
                 PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB)) { 
-        kmem_add_memory(kmem_get_region_by_addr(va_to_pa(pml4_addr)), 
+        kmem_add_memory(kmem_get_mempool_by_addr(va_to_pa(pml4_addr)), 
                 va_to_pa(pml4_addr), 
                 PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB);
 

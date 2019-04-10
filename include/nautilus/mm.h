@@ -89,9 +89,13 @@ int nk_kmem_init(void);
 
 struct mem_region;
 
+/* zjp: keep the old get_base_zone and get_region for lua runtime */
 struct mem_region * kmem_get_base_zone(void);
 struct mem_region * kmem_get_region_by_addr(ulong_t addr);
-void kmem_add_memory(struct mem_region * mem, ulong_t base_addr, size_t size);
+
+struct buddy_mempool * kmem_get_mempool_by_addr(ulong_t addr);
+
+void kmem_add_memory(struct buddy_mempool* mp, ulong_t base_addr, size_t size);
 
 // this the range of heap addresses used by the boot allocator [low,high)
 void kmem_inform_boot_allocation(void *low, void *high);

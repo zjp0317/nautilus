@@ -263,17 +263,32 @@ kmem_get_region_by_addr (ulong_t addr)
     return NULL;
 }
 
+/* zjp
+ * Get the mempool pointer based on unit hash
+ */
+struct buddy_mempool *
+kmem_get_mempool_by_addr (ulong_t addr)
+{
+    struct kmem_unit_hdr * hdr = unit_hash_find_entry((void*)addr);
+    if (hdr == NULL) {
+        ERROR_PRINT("Could not find unit hash with base address (%p), addr (%p)\n",
+                (void*)((uint64_t)addr & KMEM_UNIT_MASK), (void *)addr);
+        return NULL;
+    }
+    return hdr->mempool;
+}
+
 /**
  * This adds memory to the kernel memory pool. The memory region being added
- * must fall within a zone previously specified via kmem_create_zone().
+ * must fall within a mempool previously initialized via buddy_init_pool().
  *
  * Arguments:
- *       [IN] mem:       region of memory to add
+ *       [IN] mp:        mempool of memory to add
  *       [IN] base_addr: the base address of the memory to add
  *       [IN] size:      the size of the memory to add
  */
 void
-kmem_add_memory (struct mem_region * mem, 
+kmem_add_memory (struct buddy_mempool * mp, 
                 ulong_t base_addr, 
                 size_t size)
 {
@@ -288,16 +303,16 @@ kmem_add_memory (struct mem_region * mem,
 
     uint64_t max_chunk_size = base_addr ? 1ULL << __builtin_ctzl(base_addr) : size;
     uint64_t chunk_size = max_chunk_size < size ? max_chunk_size : size;
-    uint64_t chunk_order = ilog2(chunk_size); // floor
+    uint64_t chunk_order = ilog2(chunk_size); // floor 
     uint64_t num_chunks = size/chunk_size; // floor
     void *addr=(void*)pa_to_va(base_addr);
     uint64_t i;
 
-    KMEM_DEBUG("Add Memory to region %p base_addr=0x%llx size=0x%llx chunk_size=0x%llx, chunk_order=0x%llx, num_chunks=0x%llx, addr=%p\n",
-	       mem,base_addr,size,chunk_size,chunk_order,num_chunks,addr);
+    KMEM_DEBUG("Add Memory to mempool %p base_addr=0x%llx size=0x%llx chunk_size=0x%llx, chunk_order=0x%llx, num_chunks=0x%llx, addr=%p\n",
+	       mp,base_addr,size,chunk_size,chunk_order,num_chunks,addr);
     
-    for (i=0;i<num_chunks;i++) { 
-	buddy_free(mem->mm_state, addr+i*chunk_size, chunk_order);
+    for (i = 0; i < num_chunks; i++) { 
+        buddy_free(mp, addr+i*chunk_size, chunk_order);
     }
 
     /* Update statistics */
