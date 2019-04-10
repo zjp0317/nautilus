@@ -71,6 +71,8 @@
  */
 #define MIN_ORDER   5  /* 32 bytes */
 
+#define MAX_ORDER   (27+12)  /* 128MB * 4K, max order for each zone */
+
 /**
  *  * Total number of bytes in the kernel memory pool.
  *   */
@@ -351,6 +353,26 @@ void *boot_mm_get_cur_top();
 static void *kmem_private_start;
 static void *kmem_private_end;
 
+/* zjp
+ * Alloc unit hash entries for range [base_addr, end_addr).
+ */
+static int kmem_alloc_unit_hash (uint64_t base_addr, uint64_t end_addr, struct buddy_mempool* mp) {
+    uint64_t unit_addr;
+    for(unit_addr = base_addr; unit_addr < end_addr; unit_addr += KMEM_UNIT_SIZE) {
+        struct kmem_unit_hdr * hdr = unit_hash_alloc((void*)unit_addr);
+        if(!hdr) {
+            ERROR_PRINT("Can not allocate unit hash entry for unit_addr %lx, region base_addr=%lx, region end_addr=%lu\n",
+                    unit_addr, base_addr, end_addr);
+            for(; base_addr < unit_addr; base_addr += KMEM_UNIT_SIZE) {
+                unit_hash_free((void*)base_addr);
+            }
+            return -1;
+        }
+        hdr->mempool = mp;
+    }
+    return 0;
+}
+
 /* 
  * initializes the kernel memory pools based on previously 
  * collected memory information (including NUMA domains etc.)
@@ -370,90 +392,52 @@ nk_kmem_init (void)
     /* initialize the global zone list */
     INIT_LIST_HEAD(&glob_zone_list);
 
-    for (; i < numa_info->num_domains; i++) {
+    /* init hash entries, by default, supporting 1TB (8K units * 128MB per unit) */
+    if (unit_hash_init()) {
+        KMEM_ERROR("Failed to initialize unit hash\n");
+        return -1;
+    }
+
+    for (i = 0; i < numa_info->num_domains; i++) {
+        /* create zone for this domain */
+        struct buddy_memzone * zone = buddy_init(numa_info->domains[i]->id, MAX_ORDER, MIN_ORDER);
+        if(zone == NULL) {
+            panic("Could not initialization memory management for domain %d\n", numa_info->domains[i]->id);
+            return -1;
+        }
+        numa_info->domains[i]->zone = zone;
+        /* add pools into this zone */
         j = 0;
         list_for_each_entry(ent, &(numa_info->domains[i]->regions), entry) {
-	    if (ent->len < (1UL << MIN_ORDER)) { 
-		KMEM_DEBUG("Skipping kmem initialization of oddball region of size %lu\n", ent->len);
-		continue;
-	    }
-            ent->mm_state = create_zone(ent);
-            if (!ent->mm_state) {
-                panic("Could not create kmem zone for region %u in domain %u\n", j, i);
+            if (ent->len < (1UL << MIN_ORDER)) { 
+                KMEM_DEBUG("Skipping kmem initialization of oddball region of size %lu\n", ent->len);
+                continue;
+            }
+            uint64_t len = roundup_pow_of_two(ent->len);
+            struct buddy_mempool * mp = buddy_init_pool(zone, ent->base_addr, ilog2(len)); 
+            if(mp == NULL) {
+                panic("Could not initialize pool for region %u in domain %u\n", j, i);
                 return -1;
             }
-	    total_phys_mem += ent->len;
+            /* alloc hash entries for this region */
+            if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
+                mm_boot_free(mp, sizeof(struct buddy_mempool));
+                panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
+                return -1;
+            }
+
+            list_add(&(ent->glob_link), &glob_zone_list);
+
+            total_phys_mem += ent->len;
             ++j;
-        }
-    }
 
-    /* now, to avoid this logic at allocation time, 
-     * we give each core an ordered list of regions 
-     * based on distance from its home node. 
-     * We'll try to allocate from these in order */
-    for (i = 0; i < sys->num_cpus; i++) {
-        struct list_head * local_regions = &(sys->cpus[i]->kmem.ordered_regions);
-        INIT_LIST_HEAD(local_regions);
-
-        // first add the local domain's regions
-        struct numa_domain * loc_dom = sys->cpus[i]->domain;
-        struct mem_region * mem = NULL;
-        list_for_each_entry(mem, &loc_dom->regions, entry) {
-            struct mem_reg_entry * newent = mm_boot_alloc(sizeof(struct mem_reg_entry));
-            if (!newent) {
-                KMEM_ERROR("Could not allocate mem region entry\n");
-                return -1;
+            if ((ent->base_addr + ent->len) >= sys->mem.phys_mem_avail) {
+                sys->mem.phys_mem_avail = ent->base_addr + ent->len;
             }
-            newent->mem = mem;
-            KMEM_DEBUG("Adding region [%p] in domain %u to CPU %u's local region list\n",
-                    mem->base_addr, 
-                    loc_dom->id,
-                    i);
-            list_add_tail(&newent->mem_ent, local_regions);
-        }
-
-        struct domain_adj_entry * rem_dom_ent = NULL;
-        list_for_each_entry(rem_dom_ent, &loc_dom->adj_list, list_ent) {
-            struct numa_domain * rem_dom = rem_dom_ent->domain;
-            struct mem_region *rem_reg = NULL;
-
-            list_for_each_entry(rem_reg, &rem_dom->regions, entry) {
-                struct mem_reg_entry * newent = mm_boot_alloc(sizeof(struct mem_reg_entry));
-                if (!newent) {
-                    ERROR_PRINT("Could not allocate mem region entry\n");
-                    return -1;
-                }
-                newent->mem = rem_reg;
-                list_add_tail(&newent->mem_ent, local_regions);
-            }
-
-        }
-
-    }
-
-    total_mem = 0;
-    /* just to make sure */
-    for (i = 0; i < sys->num_cpus; i++) {
-        struct list_head * local_regions = &(sys->cpus[i]->kmem.ordered_regions);
-        struct mem_reg_entry * reg = NULL;
-
-        KMEM_DEBUG("CPU %u region affinity list:\n", i);
-        list_for_each_entry(reg, local_regions, mem_ent) {
-            KMEM_DEBUG("    [Domain=%u, %p-%p]\n", reg->mem->domain_id, reg->mem->base_addr, reg->mem->base_addr + reg->mem->len);
-	    total_mem += reg->mem->len;
-	    if ((reg->mem->base_addr + reg->mem->len) >= sys->mem.phys_mem_avail) {
-		sys->mem.phys_mem_avail = reg->mem->base_addr + reg->mem->len;
-	    }
         }
     }
 
     KMEM_PRINT("Malloc configured to support a maximum of: 0x%lx bytes of physical memory\n", total_phys_mem);
-
-    if (block_hash_init(total_phys_mem)) { 
-      KMEM_ERROR("Failed to initialize block hash\n");
-      return -1;
-    }
-
 
     // the assumption here is that no further boot_mm allocations will
     // be made by kmem from this point on
@@ -461,7 +445,6 @@ nk_kmem_init (void)
 
     return 0;
 }
-
 
 // A fake header representing the boot allocations
 static void     *boot_start;
