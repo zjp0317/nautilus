@@ -727,3 +727,43 @@ int buddy_sanity_check(struct buddy_mempool *mp)
     struct buddy_pool_stats s;
     return _buddy_sanity_check(mp,&s);
 }
+
+/**
+ * Dumps the state of a buddy system memory allocator object to the console.
+ */
+int zone_mem_show(struct  buddy_memzone * zone)
+{
+    unsigned long          num_blocks = 0;
+    struct list_head     * entry      = NULL;
+    unsigned long flags = 0;
+    unsigned long i     = 0;
+
+    if (!zone) {
+        BUDDY_PRINT("Null Zone Pointer!!\n");
+        return 0;
+    }
+    BUDDY_PRINT("DUMP OF BUDDY MEMORY ZONE:\n");
+    BUDDY_PRINT("  Zone Max Order=%lu, Min Order=%lu\n",
+            zone->max_order, zone->min_order);
+
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    for (i = zone->min_order; i <= zone->max_order; i++) {
+        /* Count the number of memory blocks in the list */
+        num_blocks = 0;
+        list_for_each(entry, &zone->avail[i]) {
+            ++num_blocks;
+        }
+        BUDDY_PRINT("  order %2lu: %lu free blocks\n", i, num_blocks);
+    }
+    BUDDY_PRINT(" %lu memory pools\n", zone->num_pools);
+    // list pools in zone
+    struct buddy_mempool* pool = NULL;
+    list_for_each_entry(pool, &(zone->mempools), link) {
+        BUDDY_PRINT("    Base Addr=%p, order=%lu, size=%lu, free=%lu\n",
+                (void *)pool->base_addr, pool->pool_order, (1UL << pool->pool_order),
+                pool->num_free_blocks << zone->min_order);
+    }
+    spin_unlock_irq_restore(&(zone->lock), flags);
+    return 0;
+}
