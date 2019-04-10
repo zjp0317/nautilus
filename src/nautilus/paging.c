@@ -648,7 +648,16 @@ kern_ident_map (struct nk_mem_info * mem, ulong_t mbd)
             (void*)(last_pfn<<PAGE_SHIFT), 
             ps2str[lps]);
 
+#ifdef NAUT_CONFIG_PISCES
+    /* zjp:
+     * temporarily fix pagefault for dynamically adding memory,
+     * by mapping from 0x0 to a large enough address, e.g., 1TB.
+     * TODO: better design for page fault
+     */
+    construct_ident_map(pml, lps, 1ULL << 40);
+#else
     construct_ident_map(pml, lps, last_pfn<<PAGE_SHIFT);
+#endif
 
     /* install the new tables, this will also flush the TLB */
     write_cr3((ulong_t)pml);
