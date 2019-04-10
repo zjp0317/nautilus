@@ -216,70 +216,130 @@ find_buddy (struct buddy_mempool *mp, struct block *block, ulong_t order)
     return (void *)(_buddy + mp->base_addr);
 }
 
-
-struct buddy_mempool *
-buddy_init (ulong_t base_addr,
-            ulong_t pool_order,
+struct buddy_memzone *
+buddy_init (uint_t  node_id,
+            ulong_t max_order,
             ulong_t min_order)
 {
-    struct buddy_mempool *mp;
+    struct buddy_memzone *zone = NULL;
     ulong_t i;
 
-    BUDDY_DEBUG("BUDDY INIT: base_addr=%p pool_order=%lu min_order=%lu (sul=%d)\n",(void*)base_addr,pool_order,min_order,sizeof(ulong_t));
+    BUDDY_DEBUG("Initializing Memory zone with up to %lu bit blocks on Node %d\n", max_order, node_id);
 
     /* Smallest block size must be big enough to hold a block structure */
     if ((1UL << min_order) < sizeof(struct block)) {
         min_order = ilog2( roundup_pow_of_two(sizeof(struct block)) );
-	BUDDY_DEBUG("min order fixed to %lu\n",min_order);
+        BUDDY_DEBUG("min order fixed to %lu\n",min_order);
     }
 
-    /* The minimum block order must be smaller than the pool order */
-    if (min_order > pool_order) {
-	BUDDY_DEBUG("Skipping buddy init as required pool order is too small min_order=%lu pool_order=%lu\n", min_order, pool_order);
+    /* The minimum block order must be smaller than the max order */
+    if (min_order > max_order) {
+        BUDDY_DEBUG("Skipping buddy init as required pool order is too small min_order=%lu pool_order=%lu\n", min_order, max_order);
+        return NULL;
+    }
+
+    zone = mm_boot_alloc(sizeof(struct buddy_memzone));
+    if (!zone) {
+        ERROR_PRINT("Could not allocate memzone\n");
+        return NULL;
+    }
+    memset(zone, 0, sizeof(struct buddy_memzone));
+
+    zone->max_order = max_order;
+    zone->min_order = min_order;
+    zone->node_id   = node_id;
+
+    /* Allocate a list for every order up to the maximum allowed order */
+    zone->avail = mm_boot_alloc((max_order + 1) * sizeof(struct list_head));
+
+    if (!zone->avail) { 
+        ERROR_PRINT("Cannot allocate list heads\n");
+        return NULL;
+    }
+
+    /* Initially all lists are empty */
+    for (i = 0; i <= max_order; i++) {
+        INIT_LIST_HEAD(&zone->avail[i]);
+    }
+
+    spinlock_init(&(zone->lock));
+    INIT_LIST_HEAD(&zone->mempools);
+
+    BUDDY_DEBUG("Created memory zone %p\n", zone);
+
+    return zone;
+}
+
+/* zjp
+ * This function should run with holding zone->lock
+ */
+static void 
+insert_mempool(struct buddy_memzone * zone,
+        struct buddy_mempool * pool)
+{
+    list_add(&pool->link, &(zone->mempools));
+    zone->num_pools++;
+}
+
+/* zjp:
+ * This add a pool of a given size to a buddy allocated zone
+ * ONLY used during buddy initialization
+ */
+struct buddy_mempool * 
+buddy_init_pool(struct buddy_memzone * zone,
+        ulong_t          base_addr,
+        ulong_t          pool_order)
+{
+    struct buddy_mempool * mp = NULL;
+    uint8_t flags = 0;
+    int ret = 0;
+
+    if (pool_order > zone->max_order) {
+        ERROR_PRINT("Pool order size is larger than max allowable zone size (pool_order=%lu) (max_order=%lu)\n", pool_order, zone->max_order);
+        return NULL;
+    } else if (pool_order < zone->min_order) {
+        ERROR_PRINT("Pool order is smaller than min allowable zone size (pool_order=%lu) (min_order=%lu)\n", pool_order, zone->min_order);
         return NULL;
     }
 
     mp = mm_boot_alloc(sizeof(struct buddy_mempool));
+
     if (!mp) {
         ERROR_PRINT("Could not allocate mempool\n");
         return NULL;
     }
-    memset(mp, 0, sizeof(struct buddy_mempool));
 
-    mp->base_addr  = base_addr;
-    mp->pool_order = pool_order;
-    mp->min_order  = min_order;
-
-    /* Allocate a list for every order up to the maximum allowed order */
-    mp->avail = mm_boot_alloc((pool_order + 1) * sizeof(struct list_head));
-
-    if (!mp->avail) { 
-	ERROR_PRINT("Cannot allocate list heads\n");
-	return NULL;
-    }
-
-
-    /* Initially all lists are empty */
-    for (i = 0; i <= pool_order; i++) {
-        INIT_LIST_HEAD(&mp->avail[i]);
-    }
+    mp->base_addr       = base_addr;
+    mp->pool_order      = pool_order;
+    mp->min_order       = zone->min_order;
+    mp->zone            = zone;
+    mp->num_free_blocks = 0;
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
-    mp->num_blocks = (1UL << pool_order) / (1UL << min_order);
-    mp->tag_bits   = mm_boot_alloc(BITS_TO_LONGS(mp->num_blocks) * sizeof(long));
-
-    if (!mp->tag_bits) { 
-	ERROR_PRINT("Could not allocate bitmap for mempool\n");
-	return NULL;
-    }
-
-    BUDDY_DEBUG("num_blocks=%lu, tag_bits=%p alloc=%lu\n",mp->num_blocks, mp->tag_bits,
-		BITS_TO_LONGS(mp->num_blocks)*sizeof(long));
+    mp->num_blocks      = (1UL << pool_order) / (1UL << zone->min_order);
+    uint64_t bytes_for_bitmap = BITS_TO_LONGS(mp->num_blocks) * sizeof(ulong_t);
+    mp->tag_bits   = mm_boot_alloc(bytes_for_bitmap);
+    /* Allocate for order bits and flag bits */
+    mp->order_bits = mm_boot_alloc(bytes_for_bitmap);
+    mp->flag_bits   = mm_boot_alloc(bytes_for_bitmap);
 
     /* Initially mark all minimum-sized blocks as allocated */
     bitmap_zero(mp->tag_bits, mp->num_blocks);
+    /* initialize order bits */ 
+    bitmap_zero(mp->order_bits, mp->num_blocks);
+    /* initialize flag bits */
+    bitmap_zero(mp->flag_bits, mp->num_blocks);
 
-    BUDDY_DEBUG("Created memory pool %p\n",mp);
+    flags = spin_lock_irq_save(&(zone->lock));
+    {
+        insert_mempool(zone, mp);
+    }
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    // During init, don't do free here!!  The initial free blocks will be added back by mm_boot_kmem_init
+    //buddy_free(mp, (void*)base_addr, pool_order);
+
+    BUDDY_DEBUG("Added memory pool (addr=%p), order=%lu\n", (void *)base_addr, pool_order);
 
     return mp;
 }
