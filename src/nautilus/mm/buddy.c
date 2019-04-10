@@ -163,6 +163,36 @@ is_available (struct buddy_mempool *mp, struct block *block)
     return test_bit(block_to_id(mp, block), mp->tag_bits);
 }
 
+/* zjp:
+ * Set the order bit (only the last bit) for the block 
+ */
+static inline void
+set_order_bit(struct buddy_mempool *mp, ulong_t block_id, ulong_t order)
+{
+    __set_bit(block_id + (1ULL<<(order - mp->min_order)) - 1,
+            (volatile char*)mp->order_bits);
+}
+
+/* zjp:
+ * Clear the order bit (only the last bit) for the block 
+ */
+static inline void
+clear_order_bit(struct buddy_mempool *mp, ulong_t block_id, ulong_t order)
+{
+    __clear_bit(block_id + (1ULL<<(order - mp->min_order)) - 1,
+            (volatile char*)mp->order_bits);
+}
+
+/* zjp:
+ * Return the order of a block
+ */
+inline uint64_t 
+get_block_order(struct buddy_mempool *mp, void *block) {
+    ulong_t block_id = block_to_id(mp, block);
+    int start = block_id;
+    while( ! test_bit(block_id++, mp->order_bits));
+    return ilog2(block_id - start) + mp->min_order;
+}
 
 /**
  * Returns the address of the block's buddy block.
