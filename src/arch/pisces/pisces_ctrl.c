@@ -57,6 +57,40 @@ cmd_handler(u8    * data,
         case ENCLAVE_CMD_ADD_MEM: {
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
             printk("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+            // zjp: TODO this is just a test that adds to domian 0. Need to support any domain
+            struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
+            int ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
+            if(ret != 0) {
+                printk("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+            }
+#if 0 // test codes to verify the buddy states 
+            zone_mem_show(numa_info->domains[0]->zone);
+            // test,  consume 64M from initial pool
+            char* ptr_prev_1 = kmem_malloc( 64*1024*1024);
+            char* ptr_prev_2 = kmem_malloc( 32*1024*1024);
+            // test,  allocate 32M 64M 32M from new pool 
+            char* ptr_1 = kmem_malloc( 32*1024*1024);
+            char* ptr_2 = kmem_malloc( 64*1024*1024);
+            char* ptr_3 = kmem_malloc( 32*1024*1024);
+            zone_mem_show(numa_info->domains[0]->zone);
+
+            kmem_free(ptr_1);
+            printk("freed 32MB from new pool\n");
+            zone_mem_show(numa_info->domains[0]->zone);
+            kmem_free(ptr_2);
+            printk("freed 64MB from new pool\n");
+            zone_mem_show(numa_info->domains[0]->zone);
+            kmem_free(ptr_3);
+            printk("freed the other 32MB from new pool\n");
+            zone_mem_show(numa_info->domains[0]->zone);
+            kmem_free(ptr_prev_2);
+            printk("freed 32MB from initial pool\n");
+            zone_mem_show(numa_info->domains[0]->zone);
+            kmem_free(ptr_prev_1);
+            printk("freed 64MB from initial pool\n");
+            zone_mem_show(numa_info->domains[0]->zone);
+#endif
+
             break;
         }
         case ENCLAVE_CMD_ADD_CPU: {
