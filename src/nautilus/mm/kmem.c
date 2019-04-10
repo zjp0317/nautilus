@@ -737,6 +737,8 @@ typedef enum {GET,COUNT} stat_type_t;
 
 static uint64_t _kmem_stats(struct kmem_stats *stats, stat_type_t what)
 {
+    return 0;
+#if 0
     uint64_t cur;
     struct mem_reg_entry * reg = NULL;
     struct kmem_data * my_kmem = &(nk_get_nautilus_info()->sys.cpus[my_cpu_id()]->kmem);
@@ -775,6 +777,7 @@ static uint64_t _kmem_stats(struct kmem_stats *stats, stat_type_t what)
 	stats->total_num_pools=cur;
     }
     return cur;
+#endif
 }
 
 
@@ -790,6 +793,8 @@ void kmem_stats(struct kmem_stats *stats)
 
 int kmem_sanity_check()
 {
+    return 0;
+#if 0
     int rc=0;
     uint64_t cur;
     struct mem_reg_entry * reg = NULL;
@@ -804,6 +809,7 @@ int kmem_sanity_check()
     }
 
     return rc;
+#endif
 }
 
 
@@ -815,6 +821,8 @@ void  kmem_get_internal_pointer_range(void **start, void **end)
 
 int  kmem_find_block(void *any_addr, void **block_addr, uint64_t *block_size, uint64_t *flags)
 {
+    return 0;
+#if 0
     uint64_t i;
     uint64_t order;
     addr_t   zone_base;
@@ -857,12 +865,15 @@ int  kmem_find_block(void *any_addr, void **block_addr, uint64_t *block_size, ui
 	}
     }
     return -1;
+#endif
 }
 
 
 // set the flags of an allocated block
 int  kmem_set_block_flags(void *block_addr, uint64_t flags)
 {
+    return 0;
+#if 0
     if (block_addr>=boot_start && block_addr<boot_end) { 
 	boot_flags = flags;
 	return 0;
@@ -878,11 +889,14 @@ int  kmem_set_block_flags(void *block_addr, uint64_t flags)
 	    return 0;
 	}
     }
+#endif
 }
 
 // applies only to allocated blocks
 int  kmem_mask_all_blocks_flags(uint64_t mask, int or)
 {
+    return 0;
+#if 0
     uint64_t i;
 
     if (!or) { 
@@ -902,10 +916,13 @@ int  kmem_mask_all_blocks_flags(uint64_t mask, int or)
     }
 
     return 0;
+#endif
 }
     
 int  kmem_apply_to_matching_blocks(uint64_t mask, uint64_t flags, int (*func)(void *block, void *state), void *state)
 {
+    return 0;
+#if 0
     uint64_t i;
     
     if (((boot_flags & mask) == flags)) {
@@ -925,6 +942,7 @@ int  kmem_apply_to_matching_blocks(uint64_t mask, uint64_t flags, int (*func)(vo
     } 
     
     return 0;
+#endif
 }
     
 

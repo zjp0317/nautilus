@@ -427,6 +427,9 @@ buddy_free(
  */
 static int _buddy_sanity_check(struct buddy_mempool *mp, struct buddy_pool_stats *stats)
 {
+    // zjp: TODO do this after the new structure is done
+    return 0;
+#if 0
     int rc;
     ulong_t i;
     ulong_t num_blocks;
@@ -501,6 +504,7 @@ static int _buddy_sanity_check(struct buddy_mempool *mp, struct buddy_pool_stats
     spin_unlock_irq_restore(&mp->lock,flags);
 
     return rc;
+#endif
 }
 
 void buddy_stats(struct buddy_mempool *mp, struct buddy_pool_stats *stats)
