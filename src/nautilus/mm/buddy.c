@@ -53,6 +53,7 @@
 struct block {
     struct list_head link;
     ulong_t    order;
+    struct buddy_mempool * mempool;
 };
 
 
@@ -283,12 +284,11 @@ buddy_init (ulong_t base_addr,
     return mp;
 }
 
-
 /**
  * Allocates a block of memory of the requested size (2^order bytes).
  *
  * Arguments:
- *       [IN] mp:    Buddy system memory allocator object.
+ *       [IN] zone:  Buddy system memory allocator object.
  *       [IN] order: Block size to allocate (2^order bytes).
  *
  * Returns:
@@ -296,73 +296,87 @@ buddy_init (ulong_t base_addr,
  *       Failure: NULL
  */
 void *
-buddy_alloc (struct buddy_mempool *mp, ulong_t order)
+buddy_alloc (struct buddy_memzone *zone, ulong_t order)
 {
     ulong_t j;
+    uint8_t flags = 0;
     struct list_head *list;
     struct block *block;
     struct block *buddy_block;
 
-    ASSERT(mp);
+    ASSERT(zone);
 
-    BUDDY_DEBUG("BUDDY ALLOC on mempool : %p order: %lu mempool_order: %lu\n", mp, order, mp->pool_order);
-;
-    if (order > mp->pool_order) {
-	BUDDY_DEBUG("order is too big\n");
+    BUDDY_DEBUG("BUDDY ALLOC on zone: %p order: %lu\n", zone, order);
+    if (order > zone->max_order) {
+        BUDDY_DEBUG("order is too big\n");
         return NULL;
     }
 
     /* Fixup requested order to be at least the minimum supported */
-    if (order < mp->min_order) {
-        order = mp->min_order;
-	BUDDY_DEBUG("order expanded to %lu\n",order);
+    if (order < zone->min_order) {
+        order = zone->min_order;
+        BUDDY_DEBUG("order expanded to %lu\n", order);
     }
 
-    for (j = order; j <= mp->pool_order; j++) {
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    for (j = order; j <= zone->max_order; j++) {
 
         /* Try to allocate the first block in the order j list */
-        list = &mp->avail[j];
+        list = &zone->avail[j];
 
         if (list_empty(list)) {
-	    BUDDY_DEBUG("Skipping order %lu as the list is empty\n",j);
+            BUDDY_DEBUG("Skipping order %lu as the list is empty\n",j);
             continue;
         }
 
         block = list_first_entry(list, struct block, link);
         list_del_init(&block->link);
-        mark_allocated(mp, block);
 
-	BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
+        struct buddy_mempool* mp = block->mempool;
+
+        ulong_t block_id = block_to_id(mp, block);
+        set_order_bit(mp, block_id, order); // set order bit 
+        mark_allocated(mp, block_id);
+
+        BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
 
         /* Trim if a higher order block than necessary was allocated */
         while (j > order) {
             --j;
             buddy_block = (struct block *)((ulong_t)block + (1UL << j));
             buddy_block->order = j;
-            mark_available(mp, buddy_block);
-	    BUDDY_DEBUG("Inserted buddy block %p into order %lu\n",buddy_block,j);
-            list_add(&buddy_block->link, &mp->avail[j]);
+
+            buddy_block->mempool = mp;
+            block_id = block_to_id(mp, buddy_block);
+            mark_available(mp, block_id);
+
+            BUDDY_DEBUG("Inserted buddy block %p into order %lu\n",buddy_block,j);
+            list_add(&buddy_block->link, &zone->avail[j]);
         }
-	
-	block->order = j;
 
-	BUDDY_DEBUG("Returning block %p which is in memory pool %p-%p\n",block,mp->base_addr,mp->base_addr+(1ULL << mp->pool_order));
+        block->order = j;
+        block->mempool = NULL; 
 
+        mp->num_free_blocks -= (1UL << (order - zone->min_order));
+
+        BUDDY_DEBUG("Returning block %p which is in memory pool %p-%p\n",block,mp->base_addr,mp->base_addr+(1ULL << mp->pool_order));
+        spin_unlock_irq_restore(&(zone->lock), flags);
         return block;
     }
 
-    BUDDY_DEBUG("FAILED TO ALLOCATE from %p - RETURNING  NULL\n", mp);
+    spin_unlock_irq_restore(&(zone->lock), flags);
+    BUDDY_DEBUG("FAILED TO ALLOCATE from zone %p - RETURNING  NULL\n", zone);
 
     return NULL;
 }
-
 
 /**
  * Returns a block of memory to the buddy system memory allocator.
  */
 void
 buddy_free(
-    //!    Buddy system memory allocator object.
+    //!  Use mempool directly instead of memzone  
     struct buddy_mempool *  mp,
     //!  Address of memory block to free.
     void *        addr,
@@ -370,6 +384,8 @@ buddy_free(
     ulong_t order
 )
 {
+    uint8_t flags = 0;
+
     ASSERT(mp);
     ASSERT(order <= mp->pool_order);
     ASSERT(!((uint64_t)addr % (1ULL<<order)));  // aligned to own size only
@@ -379,7 +395,7 @@ buddy_free(
     /* Fixup requested order to be at least the minimum supported */
     if (order < mp->min_order) {
         order = mp->min_order;
-	BUDDY_DEBUG("updated order to %lu\n",order);
+        BUDDY_DEBUG("updated order to %lu\n",order);
     }
 
     ASSERT((uint64_t)addr>=(uint64_t)(mp->base_addr) &&
@@ -389,8 +405,16 @@ buddy_free(
 
     /* Overlay block structure on the memory block being freed */
     struct block * block = (struct block *) addr;
+    ulong_t block_id = block_to_id(mp, block);
 
     ASSERT(!is_available(mp, block));
+
+    struct buddy_memzone* zone = mp->zone;
+    mp->num_free_blocks += (1UL << (order - zone->min_order));
+
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
 
     /* Coalesce as much as possible with adjacent free buddy blocks */
     while (order < mp->pool_order) {
@@ -398,52 +422,52 @@ buddy_free(
         /* Determine our buddy block's address */
         struct block * buddy = find_buddy(mp, block, order);
 
-	BUDDY_DEBUG("buddy at order %lu is %p\n",order,buddy);
+        BUDDY_DEBUG("buddy at order %lu is %p\n",order,buddy);
 
         /* Make sure buddy is available and has the same size as us */
         if (!is_available(mp, buddy)) {
-	    BUDDY_DEBUG("buddy not available\n");
-	    break;
-	}
-
-        if (is_available(mp, buddy) && (buddy->order != order)) {
-	    BUDDY_DEBUG("buddy available but has order %lu\n",buddy->order);
+            BUDDY_DEBUG("buddy not available\n");
             break;
         }
 
-	BUDDY_DEBUG("buddy merge\n");
+        if (buddy->order != order) {
+            BUDDY_DEBUG("buddy available but has order %lu\n",buddy->order);
+            break;
+        }
+
+        BUDDY_DEBUG("buddy merge\n");
 
         /* OK, we're good to go... buddy merge! */
         list_del_init(&buddy->link);
         if (buddy < block) {
             block = buddy;
-	}
+        }
         ++order;
         block->order = order;
     }
-    
+
     /* Add the (possibly coalesced) block to the appropriate free list */
     block->order = order;
+    block->mempool = mp;
 
     BUDDY_DEBUG("End of search: block=%p order=%lu pool_order=%lu block->order=%lu\n",block,order,mp->pool_order,block->order);
 
-
-    mark_available(mp, block);
+    mark_available(mp, block_id);
 
     BUDDY_DEBUG("End of mark: block=%p order=%lu pool_order=%lu block->order=%lu\n",block,order,mp->pool_order,block->order);
 
-    list_add(&block->link, &mp->avail[order]);
+    list_add(&block->link, &zone->avail[order]);
+
+    spin_unlock_irq_restore(&(zone->lock), flags);
 
     BUDDY_DEBUG("block at %p of order %lu being made available\n",block,block->order);
-    
-    if (block->order==-1) { 
-	ERROR_PRINT("FAIL: block order went nuts\n");
-	ERROR_PRINT("mp->base_addr=%p mp->num_blocks=%lu  mp->min_order=%lu, block=%p\n",mp->base_addr,mp->num_blocks, mp->min_order,block);
-	panic("Block order\n");
+
+    if (block->order == -1) { 
+        ERROR_PRINT("FAIL: block order went nuts\n");
+        ERROR_PRINT("mp->base_addr=%p mp->num_blocks=%lu  mp->min_order=%lu, block=%p\n",mp->base_addr,mp->num_blocks, mp->min_order,block);
+        panic("Block order\n");
     }
-
 }
-
 
 /*
   Sanity-checks and gets statistics of the buddy pool
