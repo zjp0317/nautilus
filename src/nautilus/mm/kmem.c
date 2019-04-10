@@ -263,50 +263,6 @@ kmem_get_region_by_addr (ulong_t addr)
     return NULL;
 }
 
-
-/**
- * This adds a zone to the kernel memory pool. Zones exist to allow there to be
- * multiple non-adjacent regions of physically contiguous memory, and to represent
- * regions in different NUMA domains. Each NUMA domain can have various regions of
- * physical memory associated with it, each of which will have its own zone in 
- * the kernel memory pool.
- *
- * Note that the zone range will be in the *virtual* address space 
- * in the case we're compiling this as an HRT for operation in an HVM
- *
- * Arguments:
- *       [IN] region: The memory region to create a zone for
- *
- */
-static struct buddy_mempool *
-create_zone (struct mem_region * region)
-{
-    ulong_t pool_order = ilog2(roundup_pow_of_two(region->len));
-    ulong_t min_order  = MIN_ORDER;
-    struct buddy_mempool * pool = NULL;
-
-    ASSERT(region);
-
-    KMEM_DEBUG("Creating buddy zone for region at %p\n", region->base_addr);
-    
-    KMEM_DEBUG("computed pool order=%lu, len=%lu, roundup_len=%lu\n",
-	       pool_order, region->len, roundup_pow_of_two(region->len));
-
-    if (region->mm_state) {
-        panic("Memory zone already exists for memory region ([%p - %p] domain %u)\n",
-            (void*)region->base_addr,
-            (void*)(region->base_addr + region->len),
-            region->domain_id);
-    }
-
-    /* add this region to the global region list */
-    list_add(&(region->glob_link), &glob_zone_list);
-
-    /* Initialize the underlying buddy allocator */
-    return buddy_init(pa_to_va(region->base_addr), pool_order, min_order);
-}
-
-
 /**
  * This adds memory to the kernel memory pool. The memory region being added
  * must fall within a zone previously specified via kmem_create_zone().
