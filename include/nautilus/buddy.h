@@ -77,6 +77,10 @@ struct buddy_memzone * buddy_init (uint_t node_id, ulong_t max_order, ulong_t mi
 
 struct buddy_mempool * buddy_init_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
 
+void insert_mempool (struct buddy_memzone * zone, struct buddy_mempool * pool);
+struct buddy_mempool * buddy_create_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
+int buddy_remove_pool (struct buddy_mempool * mp);
+
 inline ulong_t get_block_order (struct buddy_mempool *mp, void *block);
 
 void buddy_free (struct buddy_mempool * mp, void * addr, ulong_t order);

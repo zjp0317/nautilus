@@ -97,6 +97,9 @@ struct buddy_mempool * kmem_get_mempool_by_addr(ulong_t addr);
 
 void kmem_add_memory(struct buddy_mempool* mp, ulong_t base_addr, size_t size);
 
+int kmem_add_mempool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t size);
+int kmem_remove_mempool (ulong_t base_addr, ulong_t size);
+
 // this the range of heap addresses used by the boot allocator [low,high)
 void kmem_inform_boot_allocation(void *low, void *high);
 

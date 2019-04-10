@@ -344,6 +344,76 @@ static int kmem_alloc_unit_hash (uint64_t base_addr, uint64_t end_addr, struct b
     return 0;
 }
 
+/* zjp:
+ * Add a new mempool into a zone 
+ */
+int
+kmem_add_mempool (struct buddy_memzone * zone,
+                 ulong_t base_addr, 
+                 ulong_t size)
+{
+    uint8_t flags = 0;
+
+    /* create a mempool struct for given memory */
+    struct buddy_mempool * mp = buddy_create_pool(zone, base_addr, ilog2(size));
+    if(mp == NULL) {
+        ERROR_PRINT("Failed to add mempool for base_addr=0x%lx size=0x%lx\n", base_addr, size);
+        printk("Failed to add mempool for base_addr=0x%lx size=0x%lx\n", base_addr, size);
+        return -1;
+    }
+
+    /* alloc hash entries for this mempool */
+    if(kmem_alloc_unit_hash(base_addr, base_addr + size, mp) != 0) {
+        kmem_free(mp->tag_bits);
+        kmem_free(mp->order_bits);
+        kmem_free(mp->flag_bits);
+        kmem_free(mp);
+        ERROR_PRINT("Failed to alloc unit hash for mempool %p base_addr=0x%lx size=0x%lx\n", mp, base_addr, size);
+        printk("Failed to alloc unit hash for mempool %p base_addr=0x%lx size=0x%lx\n", mp, base_addr, size);
+        return -1;
+    }
+
+    /* add to the zone's pool list */
+    flags = spin_lock_irq_save(&(zone->lock));
+    {
+        insert_mempool(zone, mp);
+    }
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    /* now it's safe to enable allocation on this mempool */ 
+    buddy_free(mp, (void*)base_addr, mp->pool_order);
+
+    return 0;
+}
+
+/* zjp:
+ * Given the base_addr and size, remove the corresponding mempool 
+ */
+int
+kmem_remove_mempool (ulong_t base_addr, 
+                    ulong_t size)
+{
+    /* try get the corresponding mempool */
+    struct buddy_mempool *mp = kmem_get_mempool_by_addr(base_addr);
+    if(mp == NULL) {
+        ERROR_PRINT("Cannot find mempool for base_addr=0x%lx\n", base_addr);
+        return -1;
+    }
+    /* remove the mempool from the zone's free list and pool list */
+    if ( 0 != buddy_remove_pool(mp)) {
+        ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
+        return -1;
+    }
+
+    /* free the unit hash entries */
+    ulong_t unit_addr;
+    for(unit_addr = base_addr; unit_addr < base_addr + size; unit_addr += KMEM_UNIT_SIZE) {
+        unit_hash_free((void*)unit_addr);
+    }
+
+    return 0;
+}
+
 /* 
  * initializes the kernel memory pools based on previously 
  * collected memory information (including NUMA domains etc.)

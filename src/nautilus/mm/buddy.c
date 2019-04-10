@@ -273,7 +273,7 @@ buddy_init (uint_t  node_id,
 /* zjp
  * This function should run with holding zone->lock
  */
-static void 
+void 
 insert_mempool(struct buddy_memzone * zone,
         struct buddy_mempool * pool)
 {
@@ -342,6 +342,109 @@ buddy_init_pool(struct buddy_memzone * zone,
     BUDDY_DEBUG("Added memory pool (addr=%p), order=%lu\n", (void *)base_addr, pool_order);
 
     return mp;
+}
+
+/* zjp:
+ * This create a pool of a given size for a buddy allocated zone.
+ * ONLY used after buddy allocator is initialized. 
+ * NOTE that: 
+ *   1. it does not insert the new pool to the zone's pool list
+ *   2. it does not do the initial buddy_free
+ */
+struct buddy_mempool * 
+buddy_create_pool(struct buddy_memzone * zone,
+        ulong_t          base_addr,
+        ulong_t          pool_order)
+{
+    struct buddy_mempool * mp = NULL;
+    uint8_t flags = 0;
+    int ret = 0;
+
+    if (pool_order > zone->max_order) {
+        ERROR_PRINT("Pool order size is larger than max allowable zone size (pool_order=%lu) (max_order=%lu)\n", pool_order, zone->max_order);
+        return NULL;
+    } else if (pool_order < zone->min_order) {
+        ERROR_PRINT("Pool order is smaller than min allowable zone size (pool_order=%lu) (min_order=%lu)\n", pool_order, zone->min_order);
+        return NULL;
+    }
+
+    mp = kmem_malloc(sizeof(struct buddy_mempool));
+
+    if (!mp) {
+        ERROR_PRINT("Could not allocate mempool\n");
+        return NULL;
+    }
+
+    mp->base_addr       = base_addr;
+    mp->pool_order      = pool_order;
+    mp->min_order       = zone->min_order;
+    mp->zone            = zone;
+    mp->num_free_blocks = 0;
+
+    /* Allocate a bitmap with 1 bit per minimum-sized block */
+    mp->num_blocks      = (1UL << pool_order) / (1UL << zone->min_order);
+    uint64_t bytes_for_bitmap = BITS_TO_LONGS(mp->num_blocks) * sizeof(ulong_t);
+    mp->tag_bits   = kmem_malloc(bytes_for_bitmap);
+    /* Allocate for order bits and flag bits */
+    mp->order_bits = kmem_malloc(bytes_for_bitmap);
+    mp->flag_bits   = kmem_malloc(bytes_for_bitmap);
+
+    /* Initially mark all minimum-sized blocks as allocated */
+    bitmap_zero(mp->tag_bits, mp->num_blocks);
+    /* initialize order bits */ 
+    bitmap_zero(mp->order_bits, mp->num_blocks);
+    /* initialize flag bits */
+    bitmap_zero(mp->flag_bits, mp->num_blocks);
+
+#if 0 // We should alloc unit hash entries first before actually 'adding' the pool
+    flags = spin_lock_irq_save(&(zone->lock));
+    {
+        insert_mempool(zone, mp);
+    }
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    buddy_free(mp, (void*)base_addr, pool_order);
+#endif
+
+    BUDDY_DEBUG("Added memory pool (addr=%p), order=%lu\n", (void *)base_addr, pool_order);
+
+    return mp;
+}
+
+/* zjp:
+ * Removes a mempool, if it's not in-use
+ * TODO: 
+ *   Removal of the mempool used for boot should not be allowed
+ */
+int
+buddy_remove_pool(struct buddy_mempool * mp)
+{
+    uint8_t flags = 0;
+    struct buddy_memzone *zone = mp->zone;
+
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    // zjp: TODO current code only checks the 1st block !!
+    struct block * block = (struct block *)(mp->base_addr);
+
+    if (!is_available(mp, block)) {
+        ERROR_PRINT("Trying to remove an in-use memory pool %p base_addr %lx\n", mp, mp->base_addr);
+        spin_unlock_irq_restore(&(zone->lock), flags);
+        return -1;
+    }
+
+    list_del(&(block->link));
+    list_del_init(&mp->link);
+    zone->num_pools--;
+
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    kmem_free(mp->tag_bits);
+    kmem_free(mp->order_bits);
+    kmem_free(mp->flag_bits);
+    kmem_free(mp);
+
+    return 0;
 }
 
 /**
