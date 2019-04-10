@@ -136,30 +136,23 @@ block_to_id (struct buddy_mempool *mp, struct block *block)
     return block_id;
 }
 
-
 /**
  * Marks a block as free by setting its tag bit to one.
  */
 static inline void
-mark_available (struct buddy_mempool *mp, struct block *block)
+mark_available (struct buddy_mempool *mp, ulong_t block_id)
 {
-    if (block==(struct block*)0xdfa00000ULL) {
-	BUDDY_DEBUG("Magic block %p: block_to_id=%lu\n", block, block_to_id(mp,block));
-    }
-
-    __set_bit(block_to_id(mp, block), (volatile char*)mp->tag_bits);
+    __set_bit(block_id, (volatile char*)mp->tag_bits);
 }
-
 
 /**
  * Marks a block as allocated by setting its tag bit to zero.
  */
 static inline void
-mark_allocated (struct buddy_mempool *mp, struct block *block)
+mark_allocated (struct buddy_mempool *mp, ulong_t block_id)
 {
-    __clear_bit(block_to_id(mp, block), (volatile char *)mp->tag_bits);
+    __clear_bit(block_id, (volatile char *)mp->tag_bits);
 }
-
 
 /**
  * Returns true if block is free, false if it is allocated.
