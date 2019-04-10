@@ -443,21 +443,19 @@ _kmem_malloc (size_t size, int cpu, int zero)
     ulong_t order;
     cpu_id_t my_id;
 
-    if (cpu<0 || cpu>= nk_get_num_cpus()) {
-	my_id = my_cpu_id();
+    if (cpu < 0 || cpu >= nk_get_num_cpus()) {
+        my_id = my_cpu_id();
     } else {
-	my_id = cpu;
+        my_id = cpu;
     }
-
-    struct kmem_data * my_kmem = &(nk_get_nautilus_info()->sys.cpus[my_id]->kmem);
 
     KMEM_DEBUG("malloc of %lu bytes (zero=%d) from:\n",size,zero);
     KMEM_DEBUG_BACKTRACE();
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
-	panic("KMEM HAS GONE INSANE PRIOR TO MALLOC\n");
-	return 0;
+        panic("KMEM HAS GONE INSANE PRIOR TO MALLOC\n");
+        return 0;
     }
 #endif
 
@@ -467,64 +465,49 @@ _kmem_malloc (size_t size, int cpu, int zero)
         order = MIN_ORDER;
     }
 
- retry:
+    struct numa_domain* local_domain = nk_get_nautilus_info()->sys.cpus[my_id]->domain;
+    struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
 
-    /* scan the blocks in order of affinity */
-    list_for_each_entry(reg, &(my_kmem->ordered_regions), mem_ent) {
-        struct buddy_mempool * zone = reg->mem->mm_state;
+retry:
 
-        /* Allocate memory from the underlying buddy system */
-        uint8_t flags = spin_lock_irq_save(&zone->lock);
-        block = buddy_alloc(zone, order);
-        spin_unlock_irq_restore(&zone->lock, flags);
-
-	if (block) {
-	  hdr = block_hash_alloc(block);
-	  if (!hdr) {
-            KMEM_DEBUG("malloc cannot allocate header, releasing block\n");
-	    flags = spin_lock_irq_save(&zone->lock);
-	    buddy_free(zone,block,order);
-	    spin_unlock_irq_restore(&zone->lock, flags);
-	    block=0;
-	  }
-	}
-
-        if (hdr) {
-	    hdr->addr = block;
-            hdr->zone = zone;
-	    // force a software barrier here, since our next write must come last
-	    __asm__ __volatile__ ("" :::"memory");
-	    hdr->order = order; // allocation complete
-            break;
+    /* try alloc from local zone first, then other zones */
+    block = buddy_alloc(local_domain->zone, order);
+    if(block == NULL) {
+        unsigned i;
+        for(i = 0; i < numa_info->num_domains; i++) {
+            block = buddy_alloc(numa_info->domains[i]->zone, order);
+            if(block) {
+                break;
+            }
         }
-        
     }
 
-    if (hdr) {
+    if (block) {
+        __asm__ __volatile__ ("" :::"memory");
         kmem_bytes_allocated += (1UL << order);
     } else {
-	// attempt to get memory back by reaping threads now...
-	if (first) {
-	    KMEM_DEBUG("malloc initially failed for size %lu order %lu attempting reap\n",size,order);
-	    nk_sched_reap(1);
-	    first=0;
-	    goto retry;
-	}
-	KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
-	NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
+        // attempt to get memory back by reaping threads now...
+        if (first) {
+            KMEM_DEBUG("malloc initially failed for size %lu order %lu attempting reap\n",size,order);
+            nk_sched_reap(1);
+            first = 0;
+            goto retry;
+        }
+        KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
+        NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
         return NULL;
     }
 
     KMEM_DEBUG("malloc succeeded: size %lu order %lu -> 0x%lx\n",size, order, block);
- 
+
     if (zero) { 
-	memset(block,0,1ULL << hdr->order);
+        memset(block,0,1ULL << order);
     }
-     
+
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
-	panic("KMEM HAS GONE INSANE AFTER MALLOC\n");
-	return 0;
+        panic("KMEM HAS GONE INSANE AFTER MALLOC\n");
+        return 0;
     }
 #endif
 
@@ -533,7 +516,6 @@ _kmem_malloc (size_t size, int cpu, int zero)
     /* Return address of the block */
     return block;
 }
-
 
 void *kmem_malloc(size_t size)
 {
@@ -555,26 +537,21 @@ void *kmem_malloc_specific(size_t size, int cpu, int zero)
  *
  * Arguments:
  *       [IN] addr: Address of the memory region to free.
- *
- * NOTE: The size of the memory region being freed is assumed to be in a
- *       'struct kmem_block_hdr' header located immediately before the address
- *       passed in by the caller. This header is created and initialized by
- *       kmem_alloc().
  */
 void
 kmem_free (void * addr)
 {
-    struct kmem_block_hdr *hdr;
+    struct kmem_unit_hdr *hdr;
     struct buddy_mempool * zone;
-    uint64_t order;
+    ulong_t order;
 
     KMEM_DEBUG("free of address %p from:\n", addr);
     KMEM_DEBUG_BACKTRACE();
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
-	panic("KMEM HAS GONE INSANE PRIOR TO FREE\n");
-	return;
+        panic("KMEM HAS GONE INSANE PRIOR TO FREE\n");
+        return;
     }
 #endif
 
@@ -582,49 +559,26 @@ kmem_free (void * addr)
         return;
     }
 
-
-    // Note that if the user is doing a double-free, it is possible
-    // that we race on the block hash entry and so could end up invoking
-    // the buddy free more than once
-
-    hdr = block_hash_find_entry(addr);
-
-    if (!hdr) { 
-      KMEM_ERROR("Failed to find entry for block %p in kmem_free()\n",addr);
-      KMEM_ERROR_BACKTRACE();
-      return;
+    /* retrieve the mempool info */
+    hdr = unit_hash_find_entry(addr);
+    if (!hdr) {
+        KMEM_ERROR("Failed to find entry for addr %p in kmem_free()\n",addr);
+        KMEM_ERROR_BACKTRACE();
+        return;
     }
-
-    zone = hdr->zone;
-    order = hdr->order;
-
-    // Sanity check things here
-    // this will in some cases catch a double free that is causing a
-    // race on the header
-    if (!zone || order<MIN_ORDER) {
-	KMEM_ERROR("Likely double free ignored- addr=%p, zone=%p order=%lu, hdr=%p, hdr->addr=%p, hdr->order=%lu\n", addr,zone, order, hdr,hdr->addr,hdr->order);
-	BACKTRACE(KMEM_ERROR,3);
-	// avoid freeing the header a second time
-	// block_hash_free_entry(hdr);
-	return;
-    }
-
-    
+    struct buddy_mempool *mp = hdr->mempool;
     /* Return block to the underlying buddy system */
-    uint8_t flags = spin_lock_irq_save(&zone->lock);
+    order = get_block_order(mp, addr);
     kmem_bytes_allocated -= (1UL << order);
-    buddy_free(zone, addr, order);
-    spin_unlock_irq_restore(&zone->lock, flags);
+    buddy_free(mp, addr, order);
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
-    block_hash_free_entry(hdr);
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
-	panic("KMEM HAS GONE INSANE AFTER FREE\n");
-	return;
+        panic("KMEM HAS GONE INSANE AFTER FREE\n");
+        return;
     }
 #endif
-
 }
 
 /*
@@ -637,7 +591,7 @@ kmem_free (void * addr)
 void * 
 kmem_realloc (void * ptr, size_t size)
 {
-	struct kmem_block_hdr *hdr;
+	struct kmem_unit_hdr *hdr;
 	size_t old_size;
 	void * tmp = NULL;
 
@@ -646,14 +600,15 @@ kmem_realloc (void * ptr, size_t size)
 		return kmem_malloc(size);
 	}
 
-	hdr = block_hash_find_entry(ptr);
+    /* get the order from mempool based on our hash */
+    hdr = unit_hash_find_entry(ptr);
+    if (!hdr) {
+        KMEM_DEBUG("Realloc failed to find entry for addr %p\n", ptr);
+        return NULL;
+    }
+    ulong_t order = get_block_order(hdr->mempool, ptr);
 
-	if (!hdr) {
-		KMEM_DEBUG("Realloc failed to find entry for block %p\n", ptr);
-		return NULL;
-	}
-
-	old_size = 1 << hdr->order;
+	old_size = 1 << order;
 	tmp = kmem_malloc(size);
 	if (!tmp) {
 		panic("Realloc failed\n");
@@ -668,7 +623,6 @@ kmem_realloc (void * ptr, size_t size)
 	kmem_free(ptr);
 	return tmp;
 }
-
 
 typedef enum {GET,COUNT} stat_type_t;
 
