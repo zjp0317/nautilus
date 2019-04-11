@@ -223,14 +223,8 @@ mm_boot_init (ulong_t mbd)
      *   Improve the page_map design to only map the actual mem range.
      */
 #ifdef NAUT_CONFIG_PISCES
-#ifdef NAUT_CONFIG_HVM_HRT
-    mm_boot_reserve_vmem(0, kern_start + kern_size);
-#else
     mm_boot_reserve_mem(0, kern_start + kern_size);
-#endif
-#endif
-
-#if 0
+#else
 #ifdef NAUT_CONFIG_HVM_HRT
     mm_boot_reserve_vmem(kern_start, kern_size);
 #else
