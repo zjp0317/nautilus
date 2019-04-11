@@ -29,6 +29,8 @@
 #include <nautilus/macros.h>
 #include <lib/bitmap.h>
 
+#include <arch/pisces/pisces_boot_params.h>
+
 #define CACHE_LINE_SIZE_DEFAULT 64
 
 #ifndef NAUT_CONFIG_DEBUG_BOOTMEM
@@ -170,8 +172,18 @@ mm_dump_page_map (void)
 int 
 mm_boot_init (ulong_t mbd)
 {
+    /*
+     * By default, nautilus assumes the physical mem starts at 0x0.
+     * With pisces, it actually starts at bootmem_addr_pa (which equals to pisces_boot_params).
+     * And the kernel size is stored in pisces_boot_params.
+     */
+#ifdef NAUT_CONFIG_PISCES
+    addr_t kern_start     = pisces_boot_params->kernel_addr;
+    addr_t kern_end       = kern_start + pisces_boot_params->kernel_size;
+#else
     addr_t kern_start     = (addr_t)&_loadStart;
     addr_t kern_end       = multiboot_get_modules_end(mbd);
+#endif
     addr_t pm_start       = round_up(kern_end, PAGE_SIZE);
     boot_mem_info_t * mem = &bootmem;
     ulong_t npages;
@@ -203,6 +215,17 @@ mm_boot_init (ulong_t mbd)
     uint64_t kern_size = pm_start + pm_len - kern_start;
     kern_size = (PAGE_SIZE <= kern_size) ?  kern_size : PAGE_SIZE;
 
+    /*
+     * Although the physical mem from pisces can be, e.g., 0x8000000 ~ 0x10000000,
+     * nautilus' page_map implementation will map from 0x0 ~ 0x10000000.
+     * Since 0x0~0x8000000 should not be available anyway, let's just reserve from 0x0.
+     * TODO:
+     *   Improve the page_map design to only map the actual mem range.
+     */
+#ifdef NAUT_CONFIG_PISCES
+    mm_boot_reserve_mem(0, kern_start + kern_size);
+#endif
+#else
 #ifdef NAUT_CONFIG_HVM_HRT
     mm_boot_reserve_vmem(kern_start, kern_size);
 #else
@@ -213,7 +236,7 @@ mm_boot_init (ulong_t mbd)
     mm_boot_reserve_mem(0, PAGE_SIZE);
 
     arch_reserve_boot_regions(mbd);
-
+#endif
     return 0;
 }
 
