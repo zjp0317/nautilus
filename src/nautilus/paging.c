@@ -101,11 +101,15 @@ gig_pages_supported (void)
 static page_size_t
 largest_page_size (void)
 {
+#ifdef NAUT_CONFIG_PISCES
+    return PS_2M; // zjp: TODO test
+#else
     if (gig_pages_supported()) {
         return PS_1G;
     }
 
     return PS_2M;
+#endif
 }
 
 /*
