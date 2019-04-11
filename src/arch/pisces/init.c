@@ -151,6 +151,9 @@
 #include <rt/nesl/nesl.h>
 #endif
 
+#include <arch/pisces/pisces_boot_params.h>
+struct pisces_boot_params *pisces_boot_params = NULL;
+extern int pisces_console_init(void);
 
 extern spinlock_t printk_lock;
 
@@ -272,6 +275,12 @@ init (unsigned long mbd,
 {
     struct naut_info * naut = &nautilus_info;
 
+    /* Pisces' launch_code_esi == ( bootmem_addr_pa >> PAGE_SHIFT ) */
+    pisces_boot_params =  (struct pisces_boot_params*)(mbd << PAGE_SHIFT_4KB);
+    pisces_boot_params->initialized = 1;
+
+    pisces_console_init();
+
 
      // At this point, we have no FPU, so we need to be
     // sure that nothing we invoke could be using SSE or
@@ -315,17 +324,31 @@ init (unsigned long mbd,
 
     nk_vc_print(NAUT_WELCOME);
     
-    detect_cpu();
+    /* with pisces, cpu info is from boot params */
+    //detect_cpu();
 
     /* setup the temporary boot-time allocator */
     mm_boot_init(mbd);
 
+    /* 
+     * Later initialization, such as linker_init(), is based on multiboot info.
+     * TODO: 
+     *   Currently just do it as "no multiboot info is parsed". 
+     *   May need future work to support such initializations.
+     */
+#if 0
     naut->sys.mb_info = multiboot_parse(mbd, magic);
+#endif
+    naut->sys.mb_info = (struct multiboot_info*)mm_boot_alloc(sizeof(struct multiboot_info));
     if (!naut->sys.mb_info) {
         ERROR_PRINT("Problem parsing multiboot header\n");
     }
+    memset(naut->sys.mb_info, 0, sizeof(struct multiboot_info));
+    INIT_LIST_HEAD(&(naut->sys.mb_info->mod_list));
 
-    nk_acpi_init();
+    /* With pisces, acpi should be disabled */
+    //nk_acpi_init();
+    disable_acpi();
 
     /* enumerate CPUs and initialize them */
     smp_early_init(naut);
@@ -365,7 +388,8 @@ init (unsigned long mbd,
 
     sysinfo_init(&(naut->sys));
 
-    ioapic_init(&(naut->sys));
+    /* With pisces, we do not init ioapic */
+    //ioapic_init(&(naut->sys));
 
     nk_wait_queue_init();
     
