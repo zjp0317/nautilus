@@ -586,7 +586,7 @@ retry:
     KMEM_DEBUG("malloc succeeded: size %lu order %lu -> 0x%lx\n",size, order, block);
 
     if (zero) { 
-        memset(block,0,1ULL << order);
+        memset(block,0,1ULL << ((struct block*)block)->order);
     }
 
 #if SANITY_CHECK_PER_OP
