@@ -43,21 +43,6 @@
 #define BUDDY_PRINT(fmt, args...) printk("BUDDY: " fmt, ##args)
 #define BUDDY_WARN(fmt, args...)  WARN_PRINT("BUDDY: " fmt, ##args)
 
-
-
-/**
- * Each free block has one of these structures at its head. The link member
- * provides linkage for the mp->avail[order] free list, where order is the
- * size of the free block.
- */
-struct block {
-    struct list_head link;
-    ulong_t    order;
-    struct buddy_mempool * mempool;
-};
-
-
-
 /**
  * __set_bit - Set a bit in memory
  * @nr: the bit to set

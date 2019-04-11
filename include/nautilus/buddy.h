@@ -73,6 +73,17 @@ struct buddy_mempool {
     struct list_head link;
 };
 
+/**
+ * Each free block has one of these structures at its head. The link member
+ * provides linkage for the mp->avail[order] free list, where order is the
+ * size of the free block.
+ */
+struct block {
+    struct list_head link;
+    ulong_t    order;
+    struct buddy_mempool * mempool;
+};
+
 struct buddy_memzone * buddy_init (uint_t node_id, ulong_t max_order, ulong_t min_order);
 
 struct buddy_mempool * buddy_init_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
