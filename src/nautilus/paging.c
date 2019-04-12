@@ -439,8 +439,8 @@ __fill_pd (pde_t * pd,
             ulong_t kernel_start_page = round_up((ulong_t)&_loadStart, PAGE_SIZE_2MB);
             ulong_t kernel_end_page = round_up(kernel_start_page + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
             // check if need offset mapping
-            pd[i] = (base_addr <= kernel_end_page && base_addr >= kernel_start_page) ?
-                (base_addr + (uint64_t)pisces_boot_params) : base_addr;
+            pd[i] = (base_addr < kernel_end_page && base_addr >= kernel_start_page) ?
+                (base_addr - kernel_start_page + pisces_boot_params->kernel_addr) : base_addr;
             pd[i] |= flags | PTE_PAGE_SIZE_BIT;
 #else
             pd[i] = base_addr | flags | PTE_PAGE_SIZE_BIT;

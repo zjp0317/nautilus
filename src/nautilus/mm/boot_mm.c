@@ -178,7 +178,7 @@ mm_boot_init (ulong_t mbd)
      * And the kernel size is stored in pisces_boot_params.
      */
 #ifdef NAUT_CONFIG_PISCES
-    addr_t kern_start     = (addr_t)&_loadStart + (uint64_t)pisces_boot_params; 
+    addr_t kern_start     = pisces_boot_params->kernel_addr; 
     addr_t kern_end       = kern_start + pisces_boot_params->kernel_size;
 #else
     addr_t kern_start     = (addr_t)&_loadStart;
