@@ -1248,7 +1248,14 @@ static void calibrate_apic_timer(struct apic_dev *apic)
 {
 
 #ifndef NAUT_CONFIG_APIC_TIMER_CALIBRATE_INDEPENDENTLY
+#ifdef NAUT_CONFIG_PISCES
+    /*
+     * with pisces, 'bsp' is the sys.cpu[0]. It's not determined by checking MSR.
+     */
+    if(apic != nautilus_info.sys.cpus[0]->apic) {
+#else
     if (!apic_is_bsp(apic)) {
+#endif
 	// clone core bsp, assuming it is already up
 	//extern struct naut_info nautilus_info;
 	struct apic_dev *bsp_apic = nautilus_info.sys.cpus[0]->apic;
