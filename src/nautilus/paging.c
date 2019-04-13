@@ -436,10 +436,10 @@ __fill_pd (pde_t * pd,
              */
 #ifdef NAUT_CONFIG_PISCES
             // This calculation may be repeated multiple times but will not affect perforamance that much.
-            ulong_t kernel_start_page = round_up((ulong_t)&_loadStart, PAGE_SIZE_2MB);
-            ulong_t kernel_end_page = round_up(kernel_start_page + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
+            ulong_t kernel_start_page = round_down((ulong_t)&_loadStart, PAGE_SIZE_2MB);
+            ulong_t kernel_end_page = round_down(kernel_start_page + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
             // check if need offset mapping
-            pd[i] = (base_addr < kernel_end_page && base_addr >= kernel_start_page) ?
+            pd[i] = (base_addr <= kernel_end_page && base_addr >= kernel_start_page) ?
                 (base_addr - kernel_start_page + pisces_boot_params->kernel_addr) : base_addr;
             pd[i] |= flags | PTE_PAGE_SIZE_BIT;
 #else
