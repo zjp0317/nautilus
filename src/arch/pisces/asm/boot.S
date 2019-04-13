@@ -50,133 +50,227 @@
 .align 8
 .section .boot
 GLOBAL(pisces_boot_start)
-
-    /* this computes the delta from where I'm loaded
-     * and where I expect to be loaded
+    /*
+     * We need the following 3 infomation to do a safe mapping:
+     * 1. pisces_boot_params->kernel_addr  (offset from pisces_boot_params: 1176 bytes)
+     * 2. pisces_boot_params->kernel_size  (offset 1184 bytes) 
+     * 3. pisces_boot_params->base_mem_paddr  (offset 1272 bytes)
+     *
+     * Ident map:
+     *   [base_mem_paddr, base_mem_paddr + 128MB)
+     * Offset map:
+     *   [&_loadStart, &_loadStart + kernel_size] --> [kernel_addr, kernel_addr + kernel_size)
      */
-    leaq _loadStart(%rip), %rbp
-    subq $_loadStart, %rbp
+     
+    /* 
+     * Get the address of pisces_boot_params to rbp.
+     * It's also equals to pisces_boot_params->base_mem_paddr.
+     * It's 128M-aligned.
+     */
+    movq    %rsi, %rbp 
+    shl     $12, %rbp
 
+    /* Get pisces_boot_params->kernel_addr to r10 */
+    movq    1176(%rbp), %r10
+
+    /* Get pisces_boot_params->kernel_size to r11 */
+    movq    1184(%rbp), %r11
+
+    /* Get the offset ( kernel_addr - &_loadStart ) to r12 */ 
+    movq    %r10, %r12
+    subq    $_loadStart, %r12
+
+    /*
+     * ident map
+     */
+
+    /* Calculate ( base_mem_paddr / 1GB ) to r13 */ 
+    movq    %rbp, %r13
+    shr     $30, %r13
+
+    /* decide whether need extra pdpt and/or extra pd */
+    cmp     $512, %r13  // need both extra pdpt and extra pd, if r13 >= 512
+    jae     .both_need_extra
+    movq    $pdpt, %rax
+    cmp     $0, %r13    // need extra pd, if r13 > 0
+    ja      .need_extra_pd
+    movq    $pd, %rbx
+
+.finish_decision:
+    addq    %r12, %rax  // load offset adjustment
+    addq    %r12, %rbx  // load offset adjustment
+    movq    $pml4, %rdx
+    addq    %r12, %rdx  // load offset adjustment
+    jmp     .fill_page_table
+
+.both_need_extra:
+    movq    $pdpt_extra, %rax
+.need_extra_pd:
+    movq    $pd_extra, %rbx
+    jmp     .finish_decision
     
+.fill_page_table:
+    /* 
+     * do ident map
+     *
+     * RAX : paddr of actual PDPT for ident map
+     * RBX : paddr of actual PD for ident map
+     * RDX : paddr of PML4 for both ident map and offset-map
+     * RBP : base_mem_paddr
+     * r10 : kernel_addr
+     * r11 : kernel_size
+     * r12 : offset = ( kernel_addr - &_loadStart ) 
+     * r13 : ( base_mem_paddr / 1GB )
+     * r14 : use it to hold the value to be filled
+     */
 
-    /* setup the identity mapped pts */
+    /* fill pml4[X] with pdpt, index X = (r13 / 512), store in rcx */
+    movq    %r13, %rcx
+    shr     $9, %rcx             // X = (r13 / 512)
+    movq    %rax, %r14          // pdpt 
+    orq     $0x3, %r14          // entry is present, rw
+    movq    %r14, (%rdx,%rcx,8) // pml4[x] = pdpt_paddr | flags
 
-    /* PML4[0] -> PDPT */
-    movq $pdpt, %rax
-    addq %rbp, %rax // load offset adjustment
-    orq $0x3, %rax       /* entry is present, rw */
-    movq $pml4, %rbx
-    addq %rbp, %rbx
-    movq %rax, (%rbx)
+    /* fill pdpt[X] with pd, index X = (r13 % 512), store in rcx */
+    movq    %r13, %rcx
+    andq    $0x1FF, %rcx        // X = (r13 % 512)
+    movq    %rbx, %r14          // pd
+    orq     $0x3, %r14          // entry is present, rw
+    movq    %r14, (%rax,%rcx,8) // pdpt[X] = pd_paddr | flags
 
-    // PDPT[0] -> PDT 
-    movq $pd, %rax
-    addq %rbp, %rax // load offset adjustment
-    orq $0x3, %rax
-    movq $pdpt, %rbx
-    addq %rbp, %rbx
-    movq %rax, (%rbx)
+    /* fill pd,
+     * starting from pd[X], and only handle SIZE = 128MB. 
+     * Note that base_mem_paddr is 128M-aligned:
+     *
+     *  X = (base_mem_paddr / 2M) % 512;
+     *  base_addr = base_mem_paddr | flags; 
+     *  for(i = 64; i > 0; i--) {
+     *      pd[X++] = base_addr;
+     *      base_addr += 2MB;
+     *  }
+     */
 
-    // Identity map the first GB
-    movq $512, %rcx
-    movq $pd, %rdx
-    addq %rbp, %rdx // load offset adjustment
-    movq $0x83, %rax // set PS bit also (PDE -> 2MB page)
+    // re-use r13 to store the index X 
+    movq    %rbp, %r13
+    shr     $21, %r13
+    andq    $0x1FF, %r13    // X = (base_mem_paddr / 2M) % 512
+
+    movq    %rbp, %r14
+    orq     $0x83, %r14     // base_addr =  base_mem_paddr | flags
+
+    movq    $64, %rcx       // 64 iterations
 .write_pde:
-    movq %rax, (%rdx)
-    addq $0x200000, %rax
-    addq $0x8, %rdx
-    loop .write_pde
+    movq    %r14, (%rbx,%r13,8)     // pd[X] = base_addr
+    addq    $1, %r13                // X++
+    addq    $0x200000, %r14         // base_addr += 2MB
+    loop    .write_pde
 
-    // Fix up the kernel text + data (2nd + 3rd pd entry)
-    movq $pd, %rdx
-    addq %rbp, %rdx // load offset adjustment
-    movq $0x83, %rax
-    addq %rbp, %rax
-    addq $0x200000, %rax
-    movq %rax, 8(%rdx)
-    addq $0x200000, %rax
-    movq %rax, 16(%rdx)
+    /* Now, ident map is done, prepare for offset map */
+
+    movq    $pdpt, %rax
+    addq    %r12, %rax      // RAX: PDPT
+    movq    $pd, %rbx
+    addq    %r12, %rbx      // RBX: PD
+
+    /*
+     * do offset map
+     *
+     * RAX : paddr of PDPT for offset-map
+     * RBX : paddr of PD for offset-map
+     * RDX : paddr of PML4 
+     * r10 : kernel_addr
+     * r11 : kernel_size
+     * r12 : offset = ( kernel_addr - &_loadStart ) 
+     * r14 : use it to hold the value to be filled
+     */
+
+    /* fill pml4[0] with pdpt, may be redundant */
+    movq    %rax, %r14
+    orq     $0x3, %r14      // entry is present, rw
+    movq    %r14, (%rdx)    // pml4[0] = pdpt_paddr | flags
     
+    /* fill pdpt[0] with pd, may be redundant */
+    movq    %rbx, %r14
+    orq     $0x3, %r14      // entry is present, rw
+    movq    %r14, (%rax)    // pbpt[0] = pdpt_paddr | flags
+
+    /* fill pd,
+     * Note that kernel_addr is 2M-aligned:
+     *
+     *  X = (&_loadStart / 2M);
+     *  N = (&_loadStart + kernel_size) / 2M;
+     *  base_addr = kernel_addr | flags; 
+     *  while ( X <= N ) { 
+     *      pd[X++] = base_addr;
+     *      base_addr += 2MB;
+     *  }
+     */
+    movq    $_loadStart, %r13
+    shr     $21, %r13           // X = (&_loadStart / 2M)
+    addq    $_loadStart, %r11   // re-use r11 to store N 
+    shr     $21, %r11           // N = (&_loadStart + kernel_size) / 2M
+    
+    movq    %r10, %r14
+    orq     $0x83, %r14         // base_addr = kernel_addr | flags;
+
+    subq    %r13, %r11
+    addq    $1, %r11
+    movq    %r11, %rcx          // (N - X + 1) iterations
+.offset_write_pde:
+    movq    %r14, (%rbx,%r13,8)     // pd[X] = base_addr
+    addq    $1, %r13                // X++
+    addq    $0x200000, %r14         // base_addr += 2MB
+    loop    .offset_write_pde
 
     /* put pml4 address in cr3 */
-    movq $pml4, %rax
-    addq %rbp, %rax // load offset adjustment
-    movq %rax, %cr3
-
-    movq %rsi, %rbx
-    shl $12, %rbx
-    addq $64, %rbx
-    movq $hello_str, %rcx
-
-    movb (%rcx), %dl
-    movb %dl, (%rbx)
-    movb 1(%rcx), %dl
-    movb %dl, 1(%rbx)
-    movb 2(%rcx), %dl
-    movb %dl, 2(%rbx)
-    movb 3(%rcx), %dl
-    movb %dl, 3(%rbx)
-    movb 4(%rcx), %dl
-    movb %dl, 4(%rbx)
-    movb 5(%rcx), %dl
-    movb %dl, 5(%rbx)
-    movb 6(%rcx), %dl
-    movb %dl, 6(%rbx)
-    movb 7(%rcx), %dl
-    movb %dl, 7(%rbx)
-    movq %rbp, 8(%rbx)
-
+    movq    $pml4, %rax
+    addq    %r12, %rax // load offset adjustment
+    movq    %rax, %cr3
 
     /* enable PAE */
-    movq %cr4, %rax
-    orq $(1<<5), %rax
-    movq %rax, %cr4
-
+    movq    %cr4, %rax
+    orq     $(1<<5), %rax
+    movq    %rax, %cr4
 
     /* enable lme bit in MSR */
-    movl $0xc0000080, %ecx
+    movl    $0xc0000080, %ecx
     rdmsr
-    orl $(1<<8), %eax
+    orl     $(1<<8), %eax
     wrmsr
 
     /* paging enable */
-    movq %cr0, %rax
-    or $(1<<31), %eax
+    movq    %cr0, %rax
+    or      $(1<<31), %eax
 
     /* USING VIRTUAL ADDRESSES NOW */
 
     /* make sure we're in "normal cache mode" */
-    movq $~(3<<29), %rbx
-    andq %rbx, %rax
+    movq    $~(3<<29), %rbx
+    andq    %rbx, %rax
 
-    movq %rax, %cr0
+    movq    %rax, %cr0
 
     /* now our long mode GDT */
-    movl $gdtr64, %eax
-    lgdt (%eax)
+    movl    $gdtr64, %eax
+    lgdt    (%eax)
 
     /* done setting up paging */
-    movq $0x10, %rax
-    movw %ax, %ds
-    movw %ax, %es
-    movw %ax, %ss
+    movq    $0x10, %rax
+    movw    %ax, %ds
+    movw    %ax, %es
+    movw    %ax, %ss
 
-    movq $boot_stack_end, %rsp
+    movq    $boot_stack_end, %rsp
 
     // clear EFLAGS
-    pushq $0
+    pushq   $0
     popfq
 
     /* real mode crap is in rsi still */
-    movq %rsi, %rdi
-    movq $main, %rax
-    callq *%rax
+    movq    %rsi, %rdi
+    movq    $main, %rax
+    callq   *%rax
 
     /* shouldn't get here */
     cli
     jmp .
-
-
-hello_str:
-.asciz "NAUT!  "

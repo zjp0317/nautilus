@@ -6,15 +6,21 @@ SECTIONS
 
     .boot :
     {
-        _loadStart = .;
+        _loadStart = .; 
         pisces_boot_start = .;
         *(.boot)
         . = ALIGN(4096);
+
         pml4 = .;
         . += 0x1000;
-        pdpt = .;
+        pdpt = .;       /* to cover pml4[0] */ 
         . += 0x1000;
-        pd = .;
+        pd = .;         /* to cover pml4[0]->pdpt[0] */ 
+        . += 0x1000; 
+
+        pdpt_extra = .; /* in case the mem from pisces does not in pml4[0] */ 
+        . += 0x1000;
+        pd_extra = .;   /* in case the mem from pisces does not in pml4[0] nor pml4[0]->pdpt[0] */
         . += 0x1000; 
 
         boot_stack_start = .;

@@ -296,7 +296,7 @@ init (unsigned long mbd,
     // Now we are safe to use optimized code that relies
     // on SSE
 
-    vga_early_init();
+    //vga_early_init();
 
     spinlock_init(&printk_lock);
 
