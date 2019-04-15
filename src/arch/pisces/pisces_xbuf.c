@@ -432,32 +432,16 @@ pisces_xbuf_server_init(uintptr_t   xbuf_va,
         return NULL;
     }
 
-#if 0
+    // reserve one with reserved_irq_handler
     if (ipi_vector == -1) {
-        /*
-        // the following find_reserve is wrong, it's for vec not irq
-        if (idt_find_and_reserve_range(1,1,&ipi_vector)) {
-        printk("Cannot find/reserve one vector\n");
-        kmem_free(desc);
-        return NULL;
-        }
-         */
-    } else {
-        if(register_int_handler(ipi_vector, ipi_handler, NULL)) {
-            printk("Could not register handler on IRQ %d for XBUF IPI\n", ipi_vector);
+        if (idt_find_and_reserve_range(1,1,(ulong_t*)&ipi_vector)) {
+            printk("Cannot find/reserve one vector\n");
             kmem_free(desc);
             return NULL;
         }
     }
-#endif
-    /* zjp
-     * test with constant
-     * TODO: find an available one
-     */
-    ipi_vector = 232; 
+    // register the reserved one
     register_int_handler(ipi_vector, ipi_handler, desc);
-
-    memset(desc, 0, sizeof(struct pisces_xbuf_desc));
 
     xbuf->enclave_cpu    = target_cpu;
     xbuf->enclave_vector = ipi_vector;
@@ -480,12 +464,8 @@ pisces_xbuf_server_init(uintptr_t   xbuf_va,
 int
 pisces_xbuf_server_deinit(struct pisces_xbuf_desc * xbuf_desc)
 {
-    //irq_free(xbuf_desc->xbuf->enclave_vector, xbuf_desc);
-    /* zjp
-     * test with constant
-     * TODO: free the found one
-     */
-    register_int_handler(232, null_irq_handler, NULL);
+    // free irq by registering null_irq_handler
+    register_int_handler(xbuf_desc->xbuf->enclave_vector, null_irq_handler, NULL);
 
     set_flags(xbuf_desc->xbuf, 0);
 
