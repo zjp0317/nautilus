@@ -224,7 +224,6 @@ mm_boot_init (ulong_t mbd)
      */
 #ifdef NAUT_CONFIG_PISCES
     mm_boot_reserve_mem(0, kern_start + kern_size);
-#endif
 #else
 #ifdef NAUT_CONFIG_HVM_HRT
     mm_boot_reserve_vmem(kern_start, kern_size);
