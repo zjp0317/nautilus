@@ -102,7 +102,7 @@
 #define ERROR(fmt, args...) ERROR_PRINT("Scheduler: " fmt, ##args)
 
 
-#define DEBUG(fmt, args...)
+#define DEBUG(fmt, args...) 
 #define DEBUG_DUMP(rt,pre)
 #ifdef NAUT_CONFIG_DEBUG_SCHED
 #undef DEBUG
@@ -1091,6 +1091,7 @@ int nk_sched_thread_post_create(nk_thread_t * t)
     rt_node *n = rt_node_init(t->sched_state); 
     
     DEBUG("create: node %p for thread %p (%lu)\n",n,t->sched_state,t->sched_state->thread->tid);
+    //printk("create: node %p for thread %p (%lu)\n",n,t->sched_state,t->sched_state->thread->tid);
     
     if (!n) {
     	ERROR("Failed to allocate rt_node in post create\n");
@@ -1840,7 +1841,6 @@ static void set_timer(rt_scheduler *scheduler, rt_thread *thread, uint64_t now)
     // to the *current time*
     uint32_t ticks = apic_realtime_to_ticks(apic,  
 					    scheduler->tsc.set_time - cur_time() + scheduler->slack);
-
     
     if (cur_time() >= scheduler->tsc.set_time) {
 	DEBUG("Time of next clock has already passed (cur_time=%llu, set_time=%llu)\n",
@@ -1858,8 +1858,6 @@ static void set_timer(rt_scheduler *scheduler, rt_thread *thread, uint64_t now)
     apic_update_oneshot_timer(apic, 
 			      ticks,
 			      IF_EARLIER);
-			      
-
 }
 
 static inline void set_interrupt_priority(rt_thread *t)
@@ -2647,7 +2645,18 @@ struct nk_thread *_sched_need_resched(int have_lock, int force_resched)
 
 struct nk_thread *nk_sched_need_resched()
 {
+#if 0 // zjp
+    struct nk_thread * ret = _sched_need_resched(0,0);
+    struct sys_info *sys = per_cpu_get(system);
+    struct cpu* cpu = sys->cpus[my_cpu_id()];
+    if(ret)
+        DEBUG_PRINT("zjp need switch %p name %s ,cpu %u irqcount %u irqlevel %u\n", ret, ret->name, cpu->id, cpu->interrupt_count, cpu->interrupt_nesting_level); 
+    else
+        DEBUG_PRINT("zjp no need switch cpu %u irqcount %u irqlevel %u\n", cpu->id, cpu->interrupt_count, cpu->interrupt_nesting_level); 
+    return ret;
+#else
     return _sched_need_resched(0,0);
+#endif
 }
 
 int nk_sched_thread_change_constraints(struct nk_sched_constraints *constraints)
@@ -4030,6 +4039,8 @@ static int shared_init(struct cpu *my_cpu, struct nk_sched_config *cfg)
 
     put_cur_thread(main);
 
+    //printk("zjp put cur thread %p stack %p rsp %p cpu %u\n", main, main->stack, main->rsp, main->current_cpu);
+
     my_cpu->sched_state->current = main->sched_state;
 
     nk_sched_thread_post_create(main);
@@ -4096,6 +4107,7 @@ nk_sched_init_ap (struct nk_sched_config *cfg)
     struct cpu * my_cpu = get_cpu();
 
     DEBUG("Initializing scheduler on AP %u (%p)\n",id,my_cpu);
+    //printk("Initializing scheduler on AP %u (%p)\n",id,my_cpu);
 
     if (shared_init(my_cpu,cfg)) { 
 	ERROR("Could not intialize scheduler\n");
@@ -4157,6 +4169,7 @@ void nk_sched_start()
     uint64_t cur_cycles;
 
     DEBUG("Scheduler startup - %s\n", my_cpu->is_bsp ? "bsp" : "ap");
+    //printk("Scheduler startup - %s\n", my_cpu->is_bsp ? "bsp" : "ap");
 
     // barrier for all the schedulers
     __sync_fetch_and_add(&sync_count,1);
@@ -4185,6 +4198,7 @@ void nk_sched_start()
     my_cpu->sched_state->tsc.sync_time = apic_cycles_to_realtime(apic,cur_cycles);
 
     DEBUG("Time restarted at %lu cycles (currently %lu cycles / %lu ns)\n", tsc_start, cur_cycles, my_cpu->sched_state->tsc.sync_time);
+    //printk("Time restarted at %lu cycles (currently %lu cycles / %lu ns)\n", tsc_start, cur_cycles, my_cpu->sched_state->tsc.sync_time);
 
     // with the schedulers now synchronized and running, we launch the 
     // ancilary threads if needed
@@ -4238,6 +4252,7 @@ void nk_sched_start()
     set_timer(my_cpu->sched_state, main->sched_state, now);
 
     DEBUG("Startup done main tid=%lu\n",main->tid);
+    //printk("Startup done main tid=%lu\n",main->tid);
 
     if (my_cpu->is_bsp) { 
       scheduler_ready = 1;

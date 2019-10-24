@@ -81,7 +81,7 @@ struct nk_dev *nk_dev_register(char *name, nk_dev_type_t type, uint64_t flags, s
 
     snprintf(buf,NK_WAIT_QUEUE_NAME_LEN,"%s-wait", name);
     d->waiting_threads = nk_wait_queue_create(buf);
-    
+
     if (!d->waiting_threads) { 
 	ERROR("Failed to allocate wait queue\n");
 	free(d);

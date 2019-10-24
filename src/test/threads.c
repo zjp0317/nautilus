@@ -38,8 +38,8 @@
 // these are volatiles to stop
 // compiler from optimizing the fork tests to the point of failure
 #define NUM_PASSES 10
-#define NUM_THREADS 512
-#define DEPTH 8
+#define NUM_THREADS 8//512
+#define DEPTH 2//8
 
 struct test_arg {
     int pass;
@@ -117,7 +117,9 @@ test_fork_join(int nump, int numt)
 	    t = nk_thread_fork();
 	    if (t==NK_BAD_THREAD_ID) {
 		PRINT("Failed to fork thread\n");
-		return 0;
+		// zjp directly return 0 will not revoke the mem allcoated for children's stack
+        return 0;
+        break;
 	    }
 	    if (t==0) { 
 		// child thread

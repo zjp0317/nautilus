@@ -766,6 +766,42 @@ static int __acpi_configure_legacy(struct naut_info * naut)
 }
 
 
+int
+add_cpu (uint64_t apic_id, int* cpu) {
+    // lapic
+    struct sys_info * sys = &nautilus_info.sys;
+    if (sys->num_cpus == NAUT_CONFIG_MAX_CPUS) {
+        panic("CPU count exceeded max (check your .config)\n");
+    }
+    struct cpu * new_cpu = NULL;
+    if (!(new_cpu = kmem_malloc_internal(sizeof(struct cpu)))) {
+        panic("Couldn't allocate CPU struct\n");
+    }
+    //printk("allocate new cpu %p, id %u lapic %u \n", new_cpu, sys->num_cpus, apic_id);
+
+    memset(new_cpu, 0, sizeof(struct cpu));
+
+    new_cpu->id         = sys->num_cpus;
+    new_cpu->lapic_id   = apic_id;
+    new_cpu->enabled    = 1;
+    new_cpu->cpu_sig    = 0;
+    new_cpu->feat_flags = 0;
+    new_cpu->system     = sys;
+    new_cpu->cpu_khz    = nk_detect_cpu_freq(new_cpu->id);
+    new_cpu->is_bsp     = 0; 
+    spinlock_init(&new_cpu->lock);
+    sys->cpus[sys->num_cpus] = new_cpu;
+
+    // !!!
+    new_cpu->domain = sys->cpus[0]->domain;
+
+    *cpu = sys->num_cpus++;
+    // TODO, stop_barrier and/or other places that reply on num cpu
+
+
+    return 0;
+}
+
 int 
 arch_early_init (struct naut_info * naut)
 {

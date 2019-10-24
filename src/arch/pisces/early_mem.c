@@ -56,12 +56,15 @@ arch_detect_mem_map (mmap_info_t * mm_info,
                      mem_map_entry_t * memory_map,
                      unsigned long mbd)
 {
-    /* zjp
-     * If mem from pisces is 0x8000000 ~ 0x10000000,
-     * then mark 0x0~0x8000000 as BADRAM, and 0x8000000 ~ 0x10000000 as AVAILABLE.
-     * TODO:
-     *   Elimnate unnecessary map on 0x0~0x8000000.
-     *   This is related to page_map implementation.
+    /* 
+     * Note that our buddy allocator requires ~1.5MB metadata for 128MB memory (see buddy.c).
+     * --Map[0]. 0x0 ~ base_mem_paadr, mark as BAD RAM.
+     * --Map[1]. The 1st block is for internal usage:
+     *     Page tables, devices, metadata of the 1st buddy pool, etc.
+     *     TODO: actually, the 1st buddy pool of each zone, when numa support is implemented.
+     * --Map[2]. The 2nd block is the 1st buddy pool, which is used for:
+     *     metadata of 3rd buddy pool, app/runtime usage
+     * --Map[3]. The rest blocks if exist. 
      */
     int n = 0; // index for memory_map[]
     uint64_t addr = 0;
@@ -77,7 +80,12 @@ arch_detect_mem_map (mmap_info_t * mm_info,
             len = pisces_boot_params->base_mem_paddr;
             type = MULTIBOOT_MEMORY_BADRAM;
         } else {
-            len = pisces_boot_params->base_mem_size;
+            if(n >= 3) { // if more than 2 blocks exist
+                len = pisces_boot_params->base_mem_size - 2 * pisces_boot_params->block_size;
+            } else {
+                len = pisces_boot_params->block_size;
+            }
+
             type = MULTIBOOT_MEMORY_AVAILABLE;
             mm_info->usable_ram += len;
         }

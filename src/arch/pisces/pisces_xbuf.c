@@ -366,7 +366,7 @@ ipi_handler (excp_entry_t * excp,
     u32  data_len  = 0;
     int ret = 0;
 
-    printk("\nIPI Received\n");
+    printk("\nIPI Received %ld\n", vec);
     printk("desc=%p\n", desc);
 
     if (desc == NULL) {

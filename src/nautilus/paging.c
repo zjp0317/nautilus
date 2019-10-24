@@ -241,6 +241,9 @@ drill_pdpt (pdpte_t * pdpt, addr_t addr, addr_t map_addr, uint64_t flags)
 static int 
 drill_page_tables (addr_t addr, addr_t map_addr, uint64_t flags)
 {
+#ifdef NAUT_CONFIG_PISCES
+    return fill_page_tables(addr, map_addr, PAGE_SIZE_2MB, flags);
+#endif
     pml4e_t * _pml4 = (pml4e_t*)read_cr3();
     uint_t pml4_idx = PADDR_TO_PML4_IDX(addr);
     pdpte_t * pdpt  = 0;
@@ -430,21 +433,7 @@ __fill_pd (pde_t * pd,
     for (i = 0; i < nents; i++) {
 
         if (ps == PS_2M) {
-            /* zjp:
-             * The mem that holds the kernel code / data should be offset mapping.
-             * Everything else is identity mapping.
-             */
-#ifdef NAUT_CONFIG_PISCES
-            // This calculation may be repeated multiple times but will not affect perforamance that much.
-            ulong_t kernel_start_page = round_down((ulong_t)&_loadStart, PAGE_SIZE_2MB);
-            ulong_t kernel_end_page = round_down(kernel_start_page + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
-            // check if need offset mapping
-            pd[i] = (base_addr <= kernel_end_page && base_addr >= kernel_start_page) ?
-                (base_addr - kernel_start_page + pisces_boot_params->kernel_addr) : base_addr;
-            pd[i] |= flags | PTE_PAGE_SIZE_BIT;
-#else
             pd[i] = base_addr | flags | PTE_PAGE_SIZE_BIT;
-#endif
         } else {
             pte_t * pt = NULL;
             pt = mm_boot_alloc_aligned(PAGE_SIZE_4KB, PAGE_SIZE_4KB);
@@ -626,7 +615,263 @@ construct_ident_map (pml4e_t * pml, page_size_t ptype, ulong_t bytes)
     }
 }
 
+#ifdef NAUT_CONFIG_PISCES
+static spinlock_t pagetable_lock;
 
+#define PAGETABLE_LOCK_CONF uint8_t _pagetable_lock_flags;
+#define PAGETABLE_LOCK() _pagetable_lock_flags = spin_lock_irq_save(&pagetable_lock);
+#define PAGETABLE_UNLOCK() spin_unlock_irq_restore(&pagetable_lock, _pagetable_lock_flags);
+/*
+ * Update page table for a continuous range [addr, addr + size).
+ * Currently support 2MB page.
+ */
+
+static int
+__fill_page_tables (pml4e_t * pml4,
+                    addr_t addr,
+                    addr_t map_addr,
+                    ulong_t size,
+                    ulong_t flags,
+                    int invalidate_tlb) 
+{
+    pdpte_t * pdpt  = 0;
+    pde_t * pd = 0;
+
+    ulong_t pml4_idx_start = PADDR_TO_PML4_IDX(addr);
+    ulong_t pml4_idx_end = 0;
+    ulong_t pdpt_idx_last = 0;
+    ulong_t pd_idx_last = 0;
+
+    // adjust the index of the last entry, when the end address is aligned to boundary
+    ulong_t end_addr = addr + size;
+    pd_idx_last = PADDR_TO_PD_IDX(end_addr - 1);
+    pdpt_idx_last = PADDR_TO_PDPT_IDX(end_addr - 1);
+    pml4_idx_end = PADDR_TO_PML4_IDX(end_addr - 1);
+
+    ulong_t pml4_idx;
+    // PML4 level
+    PAGETABLE_LOCK_CONF;
+    PAGETABLE_LOCK();
+    //preempt_disable();
+    for(pml4_idx = pml4_idx_start; pml4_idx <= pml4_idx_end; pml4_idx++) {
+        if (likely(PML4E_PRESENT(pml4[pml4_idx]))) {
+            DEBUG_PRINT("pml4 entry is present\n");
+            pdpt = (pdpte_t*)(pml4[pml4_idx] & PTE_ADDR_MASK);
+        } else {
+            DEBUG_PRINT("pml4 entry not there, creating a new one\n");
+            if(likely(boot_mm_inactive == 1))
+                pdpt = (pdpte_t*)kmem_malloc_internal(PAGE_SIZE_4KB);
+            else
+                pdpt = (pdpte_t*)mm_boot_alloc_aligned(PAGE_SIZE_4KB, PAGE_SIZE_4KB);
+
+            if (!pdpt) {
+                ERROR_PRINT("out of memory in %s\n", __FUNCTION__);
+                panic("out of memory in %s\n", __FUNCTION__);
+                return -EINVAL;
+            }
+
+            memset((void*)pdpt, 0, PAGE_SIZE_4KB);
+            pml4[pml4_idx] = (ulong_t)pdpt | flags;
+        }
+
+        DEBUG_PRINT("the entry (addr: 0x%x): 0x%x\n", &pml4[pml4_idx], pml4[pml4_idx]);
+
+        // PDPT level
+        ulong_t pdpt_idx_start = (pml4_idx == pml4_idx_start) ?
+                                    PADDR_TO_PDPT_IDX(addr) : 0;
+        ulong_t pdpt_idx_end = (pml4_idx == pml4_idx_end) ?
+                                    pdpt_idx_last : (NUM_PDPT_ENTRIES - 1);
+        ulong_t pdpt_idx;
+        for(pdpt_idx = pdpt_idx_start; pdpt_idx <= pdpt_idx_end; pdpt_idx++) {
+            if (PDPTE_PRESENT(pdpt[pdpt_idx])) {
+                DEBUG_PRINT("pdpt entry is present\n");
+                pd = (pde_t*)(pdpt[pdpt_idx] & PTE_ADDR_MASK);
+            } else {
+                DEBUG_PRINT("pdpt entry not there, creating a new page directory\n");
+                if(likely(boot_mm_inactive == 1))
+                    pd = (pde_t*)kmem_malloc_internal(PAGE_SIZE_4KB);
+                else
+                    pd = (pde_t*)mm_boot_alloc_aligned(PAGE_SIZE_4KB, PAGE_SIZE_4KB);
+
+                if (!pd) {
+                    ERROR_PRINT("out of memory in %s\n", __FUNCTION__);
+                    panic("out of memory in %s\n", __FUNCTION__);
+                    return -EINVAL;
+                }
+
+                memset((void*)pd, 0, PAGE_SIZE_4KB);
+                pdpt[pdpt_idx] = (ulong_t)pd | flags;
+            }
+
+            // PD level
+            ulong_t pd_idx_start = (pml4_idx == pml4_idx_start && pdpt_idx == pdpt_idx_start) ? 
+                                        PADDR_TO_PD_IDX(addr) : 0;
+            ulong_t pd_idx_end = (pml4_idx == pml4_idx_end && pdpt_idx == pdpt_idx_end) ? 
+                                        pd_idx_last : (NUM_PD_ENTRIES - 1);
+            ulong_t pd_idx;
+            for(pd_idx = pd_idx_start; pd_idx <= pd_idx_end; pd_idx++) {
+                // Support 2MB page 
+                if (PDE_PRESENT(pd[pd_idx])) {
+                    DEBUG_PRINT("pde is present, setting (addr=%p,flags=%x) on pml4_idx %d pdpt_idx %d pd_idx %d\n",
+                                    (void*)map_addr,flags, pml4_idx, pdpt_idx, pd_idx);
+                    pd[pd_idx] = map_addr | flags | PTE_PAGE_SIZE_BIT | PTE_PRESENT_BIT;
+                    if(likely(invalidate_tlb))
+                        invlpg(map_addr);
+                } else {
+                    DEBUG_PRINT("pde is not present, setting (addr=%p,flags=%x) on pml4_idx %d pdpt_idx %d pd_idx %d\n",
+                                    (void*)map_addr,flags, pml4_idx, pdpt_idx, pd_idx);
+                    pd[pd_idx] = map_addr | flags | PTE_PAGE_SIZE_BIT;
+                }
+
+                map_addr += PAGE_SIZE_2MB;
+            }
+        }
+    }
+    //preempt_enable();
+    PAGETABLE_UNLOCK();
+    return 0;
+}
+
+int
+free_page_tables (addr_t addr, ulong_t size)
+{
+    pml4e_t * pml4 = (pml4e_t*)read_cr3();
+    pdpte_t * pdpt  = 0;
+    pde_t * pd = 0;
+    ulong_t vaddr = addr;
+
+    ulong_t pml4_idx_start = PADDR_TO_PML4_IDX(addr);
+    ulong_t pml4_idx_end = 0;
+    ulong_t pdpt_idx_last = 0;
+    ulong_t pd_idx_last = 0;
+
+    // adjust the index of the last entry, when the end address is aligned to boundary
+    ulong_t end_addr = addr + size;
+    pd_idx_last = PADDR_TO_PD_IDX(end_addr - 1);
+    pdpt_idx_last = PADDR_TO_PDPT_IDX(end_addr - 1);
+    pml4_idx_end = PADDR_TO_PML4_IDX(end_addr - 1);
+
+    ulong_t pml4_idx;
+    PAGETABLE_LOCK_CONF;
+    PAGETABLE_LOCK();
+    //preempt_disable();
+    // PML4 level
+    for(pml4_idx = pml4_idx_start; pml4_idx <= pml4_idx_end; pml4_idx++) {
+        if (likely(PML4E_PRESENT(pml4[pml4_idx]))) {
+            DEBUG_PRINT("pml4 entry is present\n");
+            pdpt = (pdpte_t*)(pml4[pml4_idx] & PTE_ADDR_MASK);
+        } else {
+            panic("%s: pml4 entry is not present!!!\n", __FUNCTION__);
+            return -EINVAL;
+        }
+
+        // PDPT level
+        ulong_t pdpt_idx_start = (pml4_idx == pml4_idx_start) ?
+                                    PADDR_TO_PDPT_IDX(addr) : 0;
+        ulong_t pdpt_idx_end = (pml4_idx == pml4_idx_end) ?
+                                    pdpt_idx_last : (NUM_PDPT_ENTRIES - 1);
+        ulong_t pdpt_idx;
+        for(pdpt_idx = pdpt_idx_start; pdpt_idx <= pdpt_idx_end; pdpt_idx++) {
+            if (PDPTE_PRESENT(pdpt[pdpt_idx])) {
+                DEBUG_PRINT("pdpt entry is present\n");
+                pd = (pde_t*)(pdpt[pdpt_idx] & PTE_ADDR_MASK);
+            } else {
+                panic("%s: pdpt entry is not present!!!\n", __FUNCTION__);
+                return -EINVAL;
+            }
+
+            // PD level
+            ulong_t pd_idx_start = (pml4_idx == pml4_idx_start && pdpt_idx == pdpt_idx_start) ? 
+                                        PADDR_TO_PD_IDX(addr) : 0;
+            ulong_t pd_idx_end = (pml4_idx == pml4_idx_end && pdpt_idx == pdpt_idx_end) ? 
+                                        pd_idx_last : (NUM_PD_ENTRIES - 1);
+            ulong_t pd_idx;
+            for(pd_idx = pd_idx_start; pd_idx <= pd_idx_end; pd_idx++) {
+                // Support 2MB page 
+                if (PDE_PRESENT(pd[pd_idx])) {
+                    DEBUG_PRINT("free pde pml4_idx %d pdpt_idx %d pd_idx %d\n", pml4_idx, pdpt_idx, pd_idx);
+                    pd[pd_idx] = 0; 
+                    invlpg(vaddr);
+                } else {
+                    panic("%s: pd entry is not present!!!\n", __FUNCTION__);
+                    return -EINVAL;
+                }
+
+                vaddr += PAGE_SIZE_2MB;
+            }
+            // If All PD level entries are freed, backwards to PDPT level
+            if(pd_idx_start == 0 && pd_idx_end == NUM_PD_ENTRIES - 1) {
+                kmem_free_internal(pd);
+                pdpt[pdpt_idx] = 0;
+                DEBUG_PRINT("free pdpte pml4_idx %d pdpt_idx %d pd_idx %d\n", pml4_idx, pdpt_idx, pd_idx);
+                // If All PDPT level entries are freed, backwars to PML level
+                ulong_t pdpt_index;
+                for(pdpt_index = 0; pdpt_index < NUM_PDPT_ENTRIES; pdpt_index++) {
+                    if(pdpt[pdpt_index] != 0)
+                        break;
+                }
+                if(pdpt_index == NUM_PDPT_ENTRIES) {
+                    kmem_free_internal(pdpt);
+                    pml4[pml4_idx] = 0;
+                    DEBUG_PRINT("free pmle pml4_idx %d pdpt_idx %d pd_idx %d\n", pml4_idx, pdpt_idx, pd_idx);
+                }
+            }
+        }
+    }
+    //preempt_enable();
+    PAGETABLE_UNLOCK();
+    return 0;
+}
+
+int
+fill_page_tables (addr_t addr,
+                    addr_t map_addr,
+                    ulong_t size,
+                    ulong_t flags)
+{
+    return __fill_page_tables ((pml4e_t*)read_cr3(), addr, map_addr, size, flags, 1);
+}
+
+static void
+__construct_tables_2m_pisces(pml4e_t * pml)
+{
+    // Pisces uses 2MB alignment 
+
+    /* Step 1: identity mapping */ 
+    __fill_page_tables(pml, pisces_boot_params->base_mem_paddr,
+                            pisces_boot_params->base_mem_paddr, 
+                            pisces_boot_params->base_mem_size,
+                            PTE_PRESENT_BIT | PTE_WRITABLE_BIT, 0);
+
+    /* Step 2: offset mapping */
+    ulong_t kernel_start_page = round_down((ulong_t)&_loadStart, PAGE_SIZE_2MB);
+    ulong_t kernel_end_page = round_up((ulong_t)&_loadStart + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
+    __fill_page_tables(pml, kernel_start_page,
+                            pisces_boot_params->kernel_addr,
+                            kernel_end_page - kernel_start_page,
+                            PTE_PRESENT_BIT | PTE_WRITABLE_BIT, 0);
+}
+
+static void
+construct_ident_map_pisces (pml4e_t * pml, page_size_t ptype)
+{
+    switch (ptype) {
+        case PS_4K:
+            //__construct_tables_4k_pisces(pml);
+            break;
+        case PS_2M:
+            __construct_tables_2m_pisces(pml);
+            break;
+        case PS_1G:
+            //__construct_tables_1g_pisces(pml);
+            break;
+        default:
+            ERROR_PRINT("Undefined page type (%u)\n", ptype);
+            return;
+    }
+
+}
+#endif
 /* 
  * Identity map all of physical memory using
  * the largest pages possible
@@ -658,11 +903,10 @@ kern_ident_map (struct nk_mem_info * mem, ulong_t mbd)
      * by mapping from 0x0 to a large enough address, e.g., 1TB.
      * TODO: better design for page fault
      */
-    construct_ident_map(pml, lps, 1ULL << 40);
+    construct_ident_map_pisces(pml, lps);
 #else
     construct_ident_map(pml, lps, last_pfn<<PAGE_SHIFT);
 #endif
-
     /* install the new tables, this will also flush the TLB */
     write_cr3((ulong_t)pml);
 }

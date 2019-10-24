@@ -340,6 +340,7 @@ uint64_t nk_timer_handler (void)
 {
     if (my_cpu_id()!=0) {
 	//DEBUG("update: cpu %d - ignored/infinity\n",my_cpu_id());
+    DEBUG_PRINT("update: cpu %d - ignored/infinity\n",my_cpu_id());
 	return -1;  // infinitely far in the future
     }
 

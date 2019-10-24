@@ -112,6 +112,12 @@ void * kmem_mallocz(size_t size);
 void * kmem_realloc(void * ptr, size_t size);
 void   kmem_free(void * addr);
 
+void * kmem_malloc_specific_internal(size_t size, int cpu, int zero);
+void * kmem_malloc_internal(size_t size);
+void * kmem_mallocz_internal(size_t size);
+void * kmem_realloc_internal(void * ptr, size_t size);
+void   kmem_free_internal(void * addr);
+
 // Support functions for garbage collection
 // We currently assume these are done with the world stopped,
 // hence no locking

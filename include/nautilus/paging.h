@@ -96,6 +96,10 @@ typedef enum {
     PS_1G,
 } page_size_t;
 
+#ifdef NAUT_CONFIG_PISCES
+int fill_page_tables (addr_t addr, addr_t map_addr, ulong_t size, ulong_t flags);
+int free_page_tables (addr_t addr, ulong_t size);
+#endif
 
 int nk_map_page (addr_t vaddr, addr_t paddr, uint64_t flags, page_size_t ps);
 int nk_map_page_nocache (addr_t paddr, uint64_t flags, page_size_t ps);

@@ -74,6 +74,7 @@ void nk_wait_queue_initialize(nk_wait_queue_t *q, char* name)
 nk_wait_queue_t *nk_wait_queue_create(char *name)
 {
     nk_wait_queue_t *q = malloc(sizeof(*q));
+
     if (q) {
         STATE_LOCK_CONF;
         memset(q,0,sizeof(*q));
@@ -90,6 +91,7 @@ nk_wait_queue_t *nk_wait_queue_create(char *name)
 	list_add_tail(&q->node,&wq_list);
 	STATE_UNLOCK();
     }
+
     return q;
 }
 

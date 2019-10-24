@@ -907,7 +907,11 @@ int nk_vc_log(char *fmt, ...)
 #ifdef NAUT_CONFIG_VIRTUAL_CONSOLE_SERIAL_MIRROR
   serial_write(buf);
 #endif
-  
+ 
+#ifdef NAUT_CONFIG_PISCES
+  pisces_cons_write(buf);
+#endif
+
   return i;
 }
 

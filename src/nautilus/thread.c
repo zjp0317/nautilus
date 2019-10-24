@@ -51,6 +51,7 @@ extern uint8_t malloc_cpus_ready;
 #define DEBUG_PRINT(fmt, args...)
 #endif
 #define THREAD_INFO(fmt, args...) INFO_PRINT("Thread: " fmt, ##args)
+//#define THREAD_ERROR(fmt, args...) printk("Thread: " fmt, ##args)
 #define THREAD_ERROR(fmt, args...) ERROR_PRINT("Thread: " fmt, ##args)
 #define THREAD_DEBUG(fmt, args...) DEBUG_PRINT("Thread: " fmt, ##args)
 #define THREAD_WARN(fmt, args...)  WARN_PRINT("Thread: " fmt, ##args)
@@ -174,12 +175,15 @@ _nk_thread_init (nk_thread_t * t,
     // scheduler will handle reanimated thread correctly here
     if (!(t->sched_state = nk_sched_thread_state_init(t,0))) { 
 	THREAD_ERROR("Could not create scheduler state for thread\n");
+        list_del(&(t->child_node)); // zjp
 	return -EINVAL;
     }
+
 
 #ifdef NAUT_CONFIG_ENABLE_BDWGC
     if (!(t->gc_state = nk_gc_bdwgc_thread_state_init(t))) {
 	THREAD_ERROR("Failed to initialize GC state for thread\n");
+        list_del(&(t->child_node)); // zjp
 	return -1;
     }
 #endif
@@ -190,6 +194,7 @@ _nk_thread_init (nk_thread_t * t,
 	t->waitq = nk_wait_queue_create(0);
 	if (!t->waitq) {
 	    THREAD_ERROR("Could not create thread's wait queue\n");
+        list_del(&(t->child_node)); // zjp
 	    return -EINVAL;
 	}
     }

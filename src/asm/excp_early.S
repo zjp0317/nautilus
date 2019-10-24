@@ -73,7 +73,29 @@ END(early_irq_handlers)
 .align 16
 GLOBAL(early_irq_common)
 
+
     SAVE_GPRS()
+
+
+#if 0
+
+    //movq 120(%rsp), %rsi # irq num
+    //cmp $32, %rsi
+    //jne zzz
+    movabs $zjptest, %rcx
+    movq (%rcx), %rax
+    cmp $2010, %rax
+    jne zzz
+    movq 120(%rsp), %rsi # irq num
+    movabs $zjpstr, %rdi
+    movl %gs:0x20, %edx
+    movl %gs:0x24, %ecx
+    movq %gs:0x10, %r8
+    movw %gs:8, %r9w
+    movabs $printk, %rax
+    callq *%rax
+    zzz:
+#endif
 
 #ifdef NAUT_CONFIG_CACHEPART
     // note that we have already saved all GPRs
@@ -137,7 +159,6 @@ skip_cat_entry:
     movabs $idt_state_table, %rdx
     movq (%rdx, %rsi, 8), %rdx   # pointer to state
 	
-    
 #ifdef NAUT_CONFIG_ENABLE_ASSERTS
     cmpq $256, %rsi
     jge irq_err
@@ -160,6 +181,7 @@ skip_cat_entry:
     callq nk_sched_need_resched
     testq %rax, %rax
     jz thr_return
+
     movq %rax, %rdi
      // on a context switch, this will handle cache partition changes for the new thread	
     jmp nk_thread_switch_intr_entry    
@@ -214,7 +236,6 @@ errloop:
 
 .align 8
 GLOBAL(early_excp_common)
-
     SAVE_GPRS()
 
     // Exceptions may occur before gsbase is set, for example breakpoints
@@ -307,3 +328,10 @@ irq_err_str:
 
 excp_err_str:
 .asciz "Received illegal exception %u\12"
+
+.align 8
+GLOBAL(zjptest)
+.quad 0
+GLOBAL(zjpstr)
+.asciz "zjp here irq %u cpu %u apic %u irqcount %u irqlevel %u\12"
+//.asciz "zjp here irq %u cpu %u\12"

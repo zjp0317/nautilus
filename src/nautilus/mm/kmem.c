@@ -122,6 +122,11 @@ struct kmem_unit_hdr {
 static struct kmem_unit_hdr * unit_hash_entries=0;
 static uint64_t               unit_hash_num_entries=0;
 
+static struct buddy_mempool * internal_mempool = NULL; /* for internal usage */
+static struct buddy_mempool * first_mempool = NULL; /* 1st pool for app/runtime usage */
+static uint64_t internal_mem_start = 0;
+static uint64_t internal_mem_end = 0;
+
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
  */
@@ -269,6 +274,10 @@ kmem_get_region_by_addr (ulong_t addr)
 struct buddy_mempool *
 kmem_get_mempool_by_addr (ulong_t addr)
 {
+    if (addr >= internal_mem_start && addr < internal_mem_end) {
+        return internal_mempool;
+    }
+
     struct kmem_unit_hdr * hdr = unit_hash_find_entry((void*)addr);
     if (hdr == NULL) {
         ERROR_PRINT("Could not find unit hash with base address (%p), addr (%p)\n",
@@ -300,7 +309,6 @@ kmem_add_memory (struct buddy_mempool * mp,
      * to their size, which we manufacture out of the memory given.
      * buddy_free() will coalesce these chunks as appropriate
      */
-
     uint64_t max_chunk_size = base_addr ? 1ULL << __builtin_ctzl(base_addr) : size;
     uint64_t chunk_size = max_chunk_size < size ? max_chunk_size : size;
     uint64_t chunk_order = ilog2(chunk_size); // floor 
@@ -362,15 +370,16 @@ kmem_add_mempool (struct buddy_memzone * zone,
         return -1;
     }
 
+    if(0 != fill_page_tables(base_addr, base_addr, size, PTE_PRESENT_BIT | PTE_WRITABLE_BIT)) {
+        ERROR_PRINT("Failed to alloc new page table for mempool %p base_addr=0x%lx size=0x%lx\n", mp, base_addr, size);
+        goto err;
+    }
+
     /* alloc hash entries for this mempool */
     if(kmem_alloc_unit_hash(base_addr, base_addr + size, mp) != 0) {
-        kmem_free(mp->tag_bits);
-        kmem_free(mp->order_bits);
-        kmem_free(mp->flag_bits);
-        kmem_free(mp);
         ERROR_PRINT("Failed to alloc unit hash for mempool %p base_addr=0x%lx size=0x%lx\n", mp, base_addr, size);
         printk("Failed to alloc unit hash for mempool %p base_addr=0x%lx size=0x%lx\n", mp, base_addr, size);
-        return -1;
+        goto err;
     }
 
     /* add to the zone's pool list */
@@ -384,6 +393,13 @@ kmem_add_mempool (struct buddy_memzone * zone,
     buddy_free(mp, (void*)base_addr, mp->pool_order);
 
     return 0;
+err:
+    free_page_tables(base_addr, size);
+    kmem_free(mp->tag_bits);
+    kmem_free(mp->order_bits);
+    kmem_free(mp->flag_bits);
+    kmem_free(mp);
+    return -1;
 }
 
 /* zjp:
@@ -399,6 +415,10 @@ kmem_remove_mempool (ulong_t base_addr,
         ERROR_PRINT("Cannot find mempool for base_addr=0x%lx\n", base_addr);
         return -1;
     }
+    if(mp == first_mempool) {
+        ERROR_PRINT("Cannot remove mempool for base_addr=0x%lx. It's reserved.\n", base_addr);
+        return -1;
+    }
     /* remove the mempool from the zone's free list and pool list */
     if ( 0 != buddy_remove_pool(mp)) {
         ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
@@ -411,7 +431,7 @@ kmem_remove_mempool (ulong_t base_addr,
         unit_hash_free((void*)unit_addr);
     }
 
-    return 0;
+    return free_page_tables(base_addr, size);
 }
 
 /* 
@@ -427,6 +447,7 @@ nk_kmem_init (void)
     unsigned i = 0, j = 0;
     uint64_t total_mem=0;
     uint64_t total_phys_mem=0;
+    struct buddy_memzone * internal_zone = NULL;
     
     kmem_private_start = boot_mm_get_cur_top();
 
@@ -439,36 +460,77 @@ nk_kmem_init (void)
         return -1;
     }
 
+    // Create internal zone to handle the 1st region in domain 0, for internal usage 
+    internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
+    if(internal_zone == NULL) {
+        panic("Could not initialize memory management for internal region\n"); 
+        return -1;
+    }
+
     for (i = 0; i < numa_info->num_domains; i++) {
         /* create zone for this domain */
         struct buddy_memzone * zone = buddy_init(numa_info->domains[i]->id, MAX_ORDER, MIN_ORDER);
         if(zone == NULL) {
-            panic("Could not initialization memory management for domain %d\n", numa_info->domains[i]->id);
+            panic("Could not initialize memory management for domain %d\n", numa_info->domains[i]->id);
             return -1;
         }
         numa_info->domains[i]->zone = zone;
         /* add pools into this zone */
         j = 0;
         list_for_each_entry(ent, &(numa_info->domains[i]->regions), entry) {
+            if (ent->mm_state) {
+                panic("Memory zone already exists for memory region ([%p - %p] domain %u)\n",
+                        (void*)ent->base_addr,
+                        (void*)(ent->base_addr + ent->len),
+                        ent->domain_id);
+            }
             if (ent->len < (1UL << MIN_ORDER)) { 
                 KMEM_DEBUG("Skipping kmem initialization of oddball region of size %lu\n", ent->len);
                 continue;
             }
-            uint64_t len = roundup_pow_of_two(ent->len);
-            struct buddy_mempool * mp = buddy_init_pool(zone, ent->base_addr, ilog2(len)); 
+
+            // ent->len cound be, e.g, 5 * 128MB. We don't want to expand it to 16 * 128MB.
+            //uint64_t len = roundup_pow_of_two(ent->len);
+            ulong_t len = round_up(ent->len, KMEM_UNIT_SIZE);
+
+            struct buddy_mempool * mp = NULL;
+            if(i == 0 && j == 0) { // 1st region in domain 0 
+                internal_mempool = mp = buddy_init_pool(internal_zone, ent->base_addr, ilog2(len)); 
+                internal_mem_start = ent->base_addr;
+                internal_mem_end = ent->base_addr + len;
+                printk("initialize internal mem pool at %p\n", ent->base_addr);
+            } else if(i == 0 && j == 1) { // 2nd region in domain 0 
+                first_mempool = mp = buddy_init_pool(zone, ent->base_addr, ilog2(len)); 
+                printk("initialize 2nd mem pool at %p\n", ent->base_addr);
+            } else { // the rest regions, if exist
+                mp = buddy_create_pool(zone, ent->base_addr, ilog2(len));
+                printk("initialize the rest mem pool at %p\n", ent->base_addr);
+            }
+
             if(mp == NULL) {
                 panic("Could not initialize pool for region %u in domain %u\n", j, i);
                 return -1;
             }
-            /* alloc hash entries for this region */
-            if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
-                mm_boot_free(mp, sizeof(struct buddy_mempool));
-                panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
-                return -1;
+
+            /* alloc hash entries, starting from the 2nd region in domain 0 */
+            if(i > 0 || j >= 1) {
+                if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
+                    mm_boot_free(mp, sizeof(struct buddy_mempool));
+                    panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
+                    return -1;
+                }
+                // This region won't be used by boot allocator
+                // TODO, this can be more efficient
+                ulong_t block_order = ilog2(KMEM_UNIT_SIZE); 
+                for (uint64_t block_addr = ent->base_addr; 
+                        block_addr < ent->base_addr + len; block_addr += KMEM_UNIT_SIZE) { 
+                    buddy_free(mp, (void*)block_addr, block_order);
+                }
             }
 
-            list_add(&(ent->glob_link), &glob_zone_list);
+            list_add(&(ent->glob_link), &glob_zone_list); // zjp useless for new design?
 
+            ent->mm_state = mp;
             total_phys_mem += ent->len;
             ++j;
 
@@ -528,11 +590,14 @@ _kmem_malloc (size_t size, int cpu, int zero)
     ulong_t order;
     cpu_id_t my_id;
 
+
+
     if (cpu < 0 || cpu >= nk_get_num_cpus()) {
         my_id = my_cpu_id();
     } else {
         my_id = cpu;
     }
+
 
     KMEM_DEBUG("malloc of %lu bytes (zero=%d) from:\n",size,zero);
     KMEM_DEBUG_BACKTRACE();
@@ -618,6 +683,69 @@ void *kmem_malloc_specific(size_t size, int cpu, int zero)
 }
 
 /**
+ * Internal kmem allocator for internal usage
+ */
+static void*
+_kmem_malloc_internal (size_t size, int zero)
+{
+    void *block = 0;
+    ulong_t order;
+    
+    /* Calculate the block order needed */
+    order = ilog2(roundup_pow_of_two(size));
+    if (order < MIN_ORDER) {
+        order = MIN_ORDER;
+    }
+
+    block = buddy_alloc(internal_mempool->zone, order);
+    
+    if(!block) {
+        KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
+        return NULL;
+    }
+
+    if(zero) {
+        memset(block,0,1ULL << ((struct block*)block)->order);
+    }
+
+    return block;
+}
+
+void *kmem_malloc_internal(size_t size)
+{
+    return _kmem_malloc_internal(size, 0);
+}
+
+void *kmem_mallocz_internal(size_t size)
+{
+    return _kmem_malloc_internal(size, 1);
+}
+
+void *kmem_malloc_specific_internal(size_t size, int cpu, int zero)
+{
+    return _kmem_malloc_internal(size, zero);
+}
+
+void
+kmem_free_internal (void * addr)
+{
+    ulong_t order;
+
+    if (!addr) {
+        return;
+    }
+    if ((uint64_t)addr < internal_mem_start || (uint64_t)addr >= internal_mem_end) {
+        KMEM_ERROR("Addr %p is not in the internal region", addr);
+        KMEM_ERROR_BACKTRACE();
+        return;
+    }
+
+    // internal zone only has one pool
+    order = get_block_order(internal_mempool, addr);
+    kmem_bytes_allocated -= (1UL << order);
+    buddy_free(internal_mempool, addr, order);
+}
+/**
  * Frees memory previously allocated with kmem_alloc().
  *
  * Arguments:
@@ -627,7 +755,6 @@ void
 kmem_free (void * addr)
 {
     struct kmem_unit_hdr *hdr;
-    struct buddy_mempool * zone;
     ulong_t order;
 
     KMEM_DEBUG("free of address %p from:\n", addr);
@@ -708,6 +835,42 @@ kmem_realloc (void * ptr, size_t size)
 	kmem_free(ptr);
 	return tmp;
 }
+
+void * 
+kmem_realloc_internal (void * ptr, size_t size)
+{
+	size_t old_size;
+	void * tmp = NULL;
+
+	/* this is just a malloc */
+	if (!ptr) {
+		return kmem_malloc_internal(size);
+	}
+
+    if ((uint64_t)ptr < internal_mem_start || (uint64_t)ptr >= internal_mem_end) {
+        KMEM_ERROR("realloc(): Old ptr %p is not in the internal region", ptr);
+        KMEM_ERROR_BACKTRACE();
+        return NULL;
+    }
+
+    ulong_t order = get_block_order(internal_mempool, ptr);
+
+	old_size = 1 << order;
+	tmp = kmem_malloc_internal(size);
+	if (!tmp) {
+		panic("Realloc failed\n");
+	}
+
+	if (old_size >= size) {
+		memcpy(tmp, ptr, size);
+	} else {
+		memcpy(tmp, ptr, old_size);
+	}
+	
+	kmem_free_internal(ptr);
+	return tmp;
+}
+
 
 typedef enum {GET,COUNT} stat_type_t;
 

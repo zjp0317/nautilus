@@ -10,5 +10,6 @@ obj-y += asm/ \
 		smp.o \
 		early_mem.o \
         pisces_ctrl.o \
-        pisces_xbuf.o
+        pisces_xbuf.o \
+        pisces_cmd.o
 		

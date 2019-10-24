@@ -531,7 +531,9 @@ int  nk_gc_pdsgc_collect(struct nk_gc_pdsgc_stats *s)
 	stats->min_block = -1;
     }
 
+    printk(" zjp gc_stack %p rso %p\n", gc_stack, t->rsp);
     rc = _nk_gc_pdsgc_stack_wrap(gc_stack+GC_STACK_SIZE,&t->rsp,_nk_gc_pdsgc_collect);
+    printk(" ==zjp gc_stack %p rso %p\n", gc_stack, t->rsp);
 
     if (stats && !stats->num_blocks) { 
 	stats->min_block=0;

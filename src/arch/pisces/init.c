@@ -158,8 +158,6 @@ extern int pisces_ctrl_init();
 
 extern spinlock_t printk_lock;
 
-
-
 #define QUANTUM_IN_NS (1000000000ULL/NAUT_CONFIG_HZ)
 
 struct nk_sched_config sched_cfg = {
@@ -280,10 +278,20 @@ init (unsigned long mbd,
      * Pisces' launch_code_esi == ( bootmem_addr_pa >> PAGE_SHIFT )
      */
     pisces_boot_params =  (struct pisces_boot_params*)(mbd << PAGE_SHIFT_4KB);
-    
+
     pisces_boot_params->initialized = 1;
+    extern addr_t pisces_boot_ap;
+    pisces_boot_params->launch_code_target_addr = (addr_t)&pisces_boot_ap;
+
     pisces_console_init();
 
+    // We ask for 2 memory blocks at least.
+    // --The 1st block is used for boot allocator, and all pages for dynamic page table.
+    // --The rest block is for kmem buddy allocator. 
+    if(pisces_boot_params->num_blocks < 2) {
+        ERROR_PRINT("Booting Nautilus requires at least 2 mem blocks. Assgiend %lu block(s).", pisces_boot_params->num_blocks);
+        return;
+    }
 
      // At this point, we have no FPU, so we need to be
     // sure that nothing we invoke could be using SSE or
@@ -389,19 +397,22 @@ init (unsigned long mbd,
 
     disable_8259pic();
 
+    nk_wait_queue_init();
+
     i8254_init(naut);
 
     /* from this point on, we can use percpu macros (even if the APs aren't up) */
 
     sysinfo_init(&(naut->sys));
 
-    
     /* zjp:
      * With pisces co-kernel, we do not init ioapic
      */
     //ioapic_init(&(naut->sys));
 
-    nk_wait_queue_init();
+    // zjp this is a bug!! wq_list is initialzied too late here.
+    // Move this init up
+    //nk_wait_queue_init();
     
     nk_timer_init();
 
@@ -416,7 +427,6 @@ init (unsigned long mbd,
     ps2_init(naut);
 
     pci_init(naut);
-
 
     nk_sched_init(&sched_cfg);
 
@@ -436,7 +446,6 @@ init (unsigned long mbd,
     naut = smp_ap_stack_switch(get_cur_thread()->rsp, get_cur_thread()->rsp, naut);
 
     mm_boot_kmem_cleanup();
-
 
     smp_setup_xcall_bsp(naut->sys.cpus[0]);
 

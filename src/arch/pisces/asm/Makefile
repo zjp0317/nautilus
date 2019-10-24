@@ -1,2 +1,3 @@
 obj-y += boot.o \
-		boot_old.o
+        smp_boot.o \
+		boot_old.o 

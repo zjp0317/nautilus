@@ -94,6 +94,10 @@ struct pisces_boot_params {
 
     u64 base_mem_paddr;
     u64 base_mem_size;
+    
+    // Memory info: num_blocks * block_size = base_mem_size 
+    u64 num_blocks;
+    u64 block_size;
 } __attribute__((packed));
 
 extern struct pisces_boot_params *pisces_boot_params;

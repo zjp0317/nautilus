@@ -465,6 +465,7 @@ apic_timer_setup (struct apic_dev * apic, uint32_t quantum_ms)
     int x2apic, tscdeadline, arat; 
 
     APIC_DEBUG("Setting up Local APIC timer for APIC 0x%x\n", apic->id);
+    //printk("Setting up Local APIC timer for APIC 0x%x\n", apic->id);
 
     cpuid(0x1, &ret);
   
@@ -992,9 +993,6 @@ void apic_update_oneshot_timer(struct apic_dev *apic, uint32_t ticks,
     apic->in_kick_interrupt=0;
 }
 	    
-
-
-
 uint32_t apic_cycles_to_ticks(struct apic_dev *apic, uint64_t cycles)
 {
     return cycles/apic->cycles_per_tick;

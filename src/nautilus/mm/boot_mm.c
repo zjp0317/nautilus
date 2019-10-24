@@ -179,7 +179,7 @@ mm_boot_init (ulong_t mbd)
      */
 #ifdef NAUT_CONFIG_PISCES
     addr_t kern_start     = pisces_boot_params->kernel_addr; 
-    addr_t kern_end       = kern_start + pisces_boot_params->kernel_size;
+    addr_t kern_end       = kern_start + pisces_boot_params->kernel_size; 
 #else
     addr_t kern_start     = (addr_t)&_loadStart;
     addr_t kern_end       = multiboot_get_modules_end(mbd);
@@ -224,6 +224,8 @@ mm_boot_init (ulong_t mbd)
      */
 #ifdef NAUT_CONFIG_PISCES
     mm_boot_reserve_mem(0, kern_start + kern_size);
+    // There're multiple blocks, reserve all blocks but the 1st one
+    mm_boot_reserve_mem(pisces_boot_params->base_mem_paddr + pisces_boot_params->block_size, pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size);
 #else
 #ifdef NAUT_CONFIG_HVM_HRT
     mm_boot_reserve_vmem(kern_start, kern_size);
@@ -514,7 +516,7 @@ add_free_pages (struct mem_region * region)
             for (m = 1; m && i < end_pfn; m <<= 1, addr += PAGE_SIZE, i++) {
                 if (v & m) {
 		    if (is_usable_ram(addr,PAGE_SIZE)) { 
-			kmem_add_memory(kmem_get_mempool_by_addr(addr), addr, PAGE_SIZE);
+			kmem_add_memory(region->mm_state, addr, PAGE_SIZE);
 			++count;
 		    } else {
 			ERROR_PRINT("Skipping addition of memory at %p (%p bytes) - Likely memory map / SRAT mismatch\n",addr,PAGE_SIZE);
@@ -547,6 +549,7 @@ mm_boot_kmem_init (void)
      * and add their associated pages in the existing bitmap to the
      * kernel mem pool */
     BMM_PRINT("Adding boot memory regions to the kernel memory pool:\n");
+
     for (i = 0; i < loc->num_domains; i++) {
         struct mem_region * region = NULL;
         unsigned j = 0;
@@ -558,7 +561,14 @@ mm_boot_kmem_init (void)
                     added % 1000000);
             count += added;
             j++;
+#ifdef NAUT_CONFIG_PISCES
+            // zjp TODO: we just handle the 1st region, no need to use loop 
+            break;
+#endif
         }
+#ifdef NAUT_CONFIG_PISCES
+        break;
+#endif
     }
 
     ASSERT(count != 0);
@@ -572,6 +582,7 @@ mm_boot_kmem_init (void)
 
 }
 
+extern int _data_start, _data_end;
 void 
 mm_boot_kmem_cleanup (void)
 {
@@ -592,7 +603,11 @@ mm_boot_kmem_cleanup (void)
 
     BMM_PRINT("    [Boot page tables and stack]     (%0lu.%02u MB)\n", PAGE_SIZE_4KB*3/1000000, PAGE_SIZE_4KB%1000000);
 
+#ifdef NAUT_CONFIG_PISCES
+    ulong_t pml4_addr = (ulong_t)&pml4 + (ulong_t)pisces_boot_params;
+#else
     ulong_t pml4_addr = (ulong_t)&pml4; 
+#endif
     if (is_usable_ram(va_to_pa(pml4_addr), 
                 PAGE_SIZE_4KB*3 + PAGE_SIZE_2MB)) { 
         kmem_add_memory(kmem_get_mempool_by_addr(va_to_pa(pml4_addr)), 

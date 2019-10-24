@@ -48,6 +48,9 @@
 #include <nautilus/cachepart.h>
 #endif
 
+#ifdef NAUT_CONFIG_PISCES
+#include <arch/pisces/pisces_boot_params.h>
+#endif
 
 #ifndef NAUT_CONFIG_DEBUG_SMP
 #undef DEBUG_PRINT
@@ -85,7 +88,6 @@ init_ap_area (struct ap_init_area * ap_area,
 
     /* setup pointer to this CPUs stack */
     uint32_t boot_stack_ptr = AP_BOOT_STACK_ADDR;
-
     ap_area->stack   = boot_stack_ptr;
     ap_area->cpu_ptr = naut->sys.cpus[core_num];
 
@@ -108,6 +110,11 @@ init_ap_area (struct ap_init_area * ap_area,
     /* pointer to our entry routine */
     ap_area->entry       = smp_ap_entry;
 
+#ifdef NAUT_CONFIG_PISCES
+    //void* new_stack = kmem_malloc_internal(PAGE_SIZE_4KB << 1);
+    //ap_area->stack = (addr_t)new_stack;
+    ap_area->stack = PISCES_AP_BOOT_STACK_ADDR + pisces_boot_params->base_mem_paddr;
+#endif
     return 0;
 }
 
@@ -127,6 +134,130 @@ smp_wait_for_ap (struct naut_info * naut, unsigned int core_num)
     return 0;
 }
 
+#ifdef NAUT_CONFIG_PISCES
+int
+smp_bringup_cpu (int cpu)
+{
+    struct naut_info * naut = &nautilus_info;
+    
+    struct ap_init_area * ap_area;
+
+    //addr_t boot_target     = (addr_t)&init_smp_boot;
+    //size_t smp_code_sz     = (addr_t)&end_smp_boot - boot_target;
+    //addr_t ap_trampoline   = (addr_t)AP_TRAMPOLINE_ADDR;
+
+    addr_t ap_trampoline   = (addr_t)pisces_boot_params->trampoline_code_pa;
+    uint8_t target_vec     = ap_trampoline >> 12U;
+    struct apic_dev * apic = naut->sys.cpus[naut->sys.bsp_id]->apic;
+
+    int status = 0; 
+    int err = 0;
+    int i, j, maxlvt;
+
+    if (cpu == 0) {
+    //if (naut->sys.cpus[i]->is_bsp) {
+        return 0;
+    }
+
+    maxlvt = apic_get_maxlvt(apic);
+
+    SMP_DEBUG("Passing target page num %x to SIPI\n", target_vec);
+
+    /* clear APIC errors */
+    if (maxlvt > 3) {
+        apic_write(apic, APIC_REG_ESR, 0);
+    }
+    apic_read(apic, APIC_REG_ESR);
+
+    //SMP_DEBUG("Copying in page for SMP boot code at (%p)...\n", (void*)ap_trampoline);
+    //memcpy((void*)ap_trampoline, (void*)boot_target, smp_code_sz);
+
+    /* create an info area for AP */
+    /* initialize AP info area (stack pointer, GDT info, etc) */
+    ap_area = (struct ap_init_area*)(PISCES_AP_INFO_AREA + pisces_boot_params->base_mem_paddr);
+
+    SMP_DEBUG("Passing AP area at %p\n", (void*)ap_area);
+    /* START BOOTING AP */
+    
+    /* we, of course, skip the BSP (NOTE: assuming it's 0...) */
+    int ret;
+
+    SMP_DEBUG("Booting secondary CPU %u\n", cpu);
+
+    ret = init_ap_area(ap_area, naut, cpu);
+    if (ret == -1) {
+        ERROR_PRINT("Error initializing ap area\n");
+        return -1;
+    }
+
+    /* Send the INIT sequence */
+    SMP_DEBUG("sending INIT to remote APIC (0x%x)\n", naut->sys.cpus[cpu]->lapic_id);
+    apic_send_iipi(apic, naut->sys.cpus[cpu]->lapic_id);
+
+    /* wait for status to update */
+    status = apic_wait_for_send(apic);
+
+    mbarrier();
+
+    /* 10ms delay */
+    udelay(10000);
+
+    /* deassert INIT IPI (level-triggered) */
+    apic_deinit_iipi(apic, naut->sys.cpus[cpu]->lapic_id);
+
+    for (j = 1; j <= 2; j++) {
+        if (maxlvt > 3) {
+            apic_write(apic, APIC_REG_ESR, 0);
+        }
+        apic_read(apic, APIC_REG_ESR);
+
+        SMP_DEBUG("Sending SIPI %u to core %u (vec=%x)\n", j, cpu, target_vec);
+
+        /* send the startup signal */
+        apic_send_sipi(apic, naut->sys.cpus[cpu]->lapic_id, target_vec);
+
+        udelay(300);
+
+        status = apic_wait_for_send(apic);
+
+        udelay(200);
+
+        err = apic_read(apic, APIC_REG_ESR) & 0xef;
+
+        if (status || err) {
+            break;
+        }
+
+        /* if it already booted up, we don't need to send the 2nd SIPI */
+        if (naut->sys.cpus[cpu]->booted == 1) {
+            break;
+        }
+
+    }
+
+    if (status) {
+        ERROR_PRINT("APIC wasn't delivered!\n");
+    }
+
+    if (err) {
+        ERROR_PRINT("ERROR delivering SIPI\n");
+    }
+
+    /* wait for AP to set its boot flag */
+    smp_wait_for_ap(naut, cpu);
+
+    SMP_DEBUG("Bringup for core %u done.\n", cpu);
+
+    BARRIER_WHILE(smp_core_count != naut->sys.num_cpus);
+
+    SMP_DEBUG("ALL CPUS BOOTED\n");
+
+    /* we can now use gs-based percpu data */
+    cpu_info_ready = 1;
+
+    return (status|err);
+}
+#endif
 
 int
 smp_bringup_aps (struct naut_info * naut)
@@ -323,7 +454,6 @@ smp_ap_setup (struct cpu * core)
     }
 #endif
 
-    
     apic_init(core);
 
     if (smp_xcall_init_queue(core) != 0) {
@@ -376,6 +506,7 @@ smp_ap_finish (struct cpu * core)
 #endif
 
     SMP_DEBUG("Core %u ready - enabling interrupts\n", core->id);
+    //printk("Core %u ready - enabling interrupts\n", core->id);
 
     sti();
 
@@ -390,8 +521,10 @@ extern void idle(void* in, void**out);
 void 
 smp_ap_entry (struct cpu * core) 
 { 
+
     struct cpu * my_cpu;
     SMP_DEBUG("Core %u starting up\n", core->id);
+
     if (smp_ap_setup(core) < 0) {
         panic("Error setting up AP!\n");
     }
@@ -401,10 +534,13 @@ smp_ap_entry (struct cpu * core)
      * for the next CPU boot! 
      */
     my_cpu = get_cpu();
+
     SMP_DEBUG("CPU (AP) %u operational\n", my_cpu->id);
+
 
     // switch from boot stack to my new stack (allocated in thread_init)
     nk_thread_t * cur = get_cur_thread();
+    //printk("zjp get cur thread %p\n", cur);
 
     /* 
      * we have to call into assembly since GCC 
@@ -420,6 +556,8 @@ smp_ap_entry (struct cpu * core)
     ASSERT(irqs_enabled());
 
     sti();
+
+    DEBUG_PRINT("zjp new ap core [%d]  %p entering idle\n", core->id, core);
 
     idle(NULL, NULL);
 }

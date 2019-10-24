@@ -125,8 +125,7 @@ nk_cmdline_dispatch (struct naut_info * naut)
     printk("parsing cmdline %s\n", cline);
 
     cmdline_state_t state_id = FLAG_SCANNING;
-
-    for (i = 0; cline[i]; i++) {
+    for (i = 0; cline && cline[i]; i++) {
 
         switch (state_id) {
             case FLAG_SCANNING:

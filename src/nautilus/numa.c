@@ -501,6 +501,11 @@ restart_scan:
     NUMA_DEBUG("Restart Scan\n");
     i = 0;
     list_for_each_entry(mem, &d->regions, entry) {
+#ifdef NAUT_CONFIG_PISCES
+        // the first 2 regions are special, don't coalesce them
+        if(i < 2)
+            continue;
+#endif
 
         if (mem->entry.next != &d->regions) {
 

@@ -126,8 +126,12 @@ struct cpu {
 
 
 struct ap_init_area {
+#ifdef NAUT_CONFIG_PISCES    
+    uint64_t stack;
+#else
     uint32_t stack;  // 0
     uint32_t rsvd; // to align the GDT on 8-byte boundary // 4
+#endif
     uint32_t gdt[6] ; // 8
     uint16_t gdt_limit; // 32
     uint32_t gdt_base; // 34
@@ -142,6 +146,10 @@ struct ap_init_area {
 
 } __packed;
 
+#ifdef NAUT_CONFIG_PISCES
+int smp_bringup_cpu(int cpu);
+int add_cpu(uint64_t apic_id, int* cpu);
+#endif
 
 int smp_early_init(struct naut_info * naut);
 int smp_bringup_aps(struct naut_info * naut);
@@ -161,6 +169,13 @@ int arch_early_init (struct naut_info * naut);
 #endif
 
 #endif /* !__ASSEMBLER__ */
+
+#ifdef NAUT_CONFIG_PISCES
+#define PISCES_AP_TRAMPOLINE_ADDR 0x00f000 
+#define PISCES_AP_BOOT_STACK_ADDR 0x0fe000
+#define PISCES_AP_INFO_AREA       0x100000
+#define PISCES_PAGE_SHIFT          12 
+#endif
 
 #define AP_TRAMPOLINE_ADDR 0xf000 
 #define AP_BOOT_STACK_ADDR 0x1000

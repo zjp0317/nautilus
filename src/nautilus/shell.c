@@ -687,7 +687,6 @@ user_typed (char * buf, void * priv, int offset)
 nk_wait_queue_t pisces_waitq; // hold shell until xbuf receives a shell cmd (string)
 char* pisces_buf = NULL; // a buffer to store the received string 
 static int check_pisces_buf_cond(void *state) {
-    // always wait 
     return 0;
 }
 #endif 
