@@ -566,6 +566,7 @@ netif_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr)
     ip4_addr2_16(netif_ip4_addr(netif)),
     ip4_addr3_16(netif_ip4_addr(netif)),
     ip4_addr4_16(netif_ip4_addr(netif)));
+
 }
 
 /**

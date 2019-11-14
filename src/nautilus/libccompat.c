@@ -231,8 +231,21 @@ srand (unsigned int seed)
 void
 srand48 (long int seedval)
 {
-    uint64_t tmp = (((uint64_t) seedval) & 0xffffffffull) << 32;
-    nk_rand_seed(tmp | 0x330eULL);
+    // zjp do the glibc srand48
+    // [2] = seedval >> 16; [1] = seedval & 0xffffl; [0] = 0x330e;
+
+    //uint64_t tmp = (((uint64_t) seedval) & 0xffffffffull) << 32;
+    //nk_rand_seed(tmp | 0x330eULL);
+
+    if (sizeof (long int) > 4)
+        seedval &= 0xffffffffl;
+
+    uint64_t val2 = seedval >> 16;
+    uint64_t val1 = seedval & 0xffffULL;
+    uint64_t val0 = 0x330eULL;
+
+    uint64_t new_val = (val2 << 32) | (val1 << 16) | (val0);
+    nk_rand_seed(new_val);
 }
 
 
@@ -251,9 +264,11 @@ static inline uint64_t pump_rand()
 {
     struct nk_rand_info * rand = per_cpu_get(rand);
 
+    //uint8_t flags = spin_lock_irq_save(&rand->lock);
     uint64_t xi_new = _pump_rand(rand->xi, 0x5deece66dULL, 0xbULL);
     
     nk_rand_set_xi(xi_new);
+    //spin_unlock_irq_restore(&rand->lock,flags);
 
     return xi_new;
 }
@@ -265,7 +280,15 @@ lrand48 (void)
     uint64_t val = pump_rand();
 
     // return top 31 bits
-    return (val >> 17) & 0x8fffffffULL;
+    // zjp :  glibc: [2] << 15 | [1] >> 1
+    //return (val >> 17) & 0x8fffffffULL;
+    unsigned short int val2 = (val >> 32) & 0xffff;
+    unsigned short int val1 = (val >> 16) & 0xffff;
+    
+    if (sizeof (unsigned short int) == 2)
+        return (val2 << 15) | (val1 >> 1);
+    else
+        return val2 >> 1;
 }
 
 
@@ -800,11 +823,76 @@ return x;
 }
 double log(double x)
 {
-return x;
+#ifdef NAUT_CONFIG_PISCES
+    #define __HI(x) *(1+(int*)&x)
+    #define __LO(x) *(int*)&x
+    static const double
+        zero    = 0.0,
+        two54   = 1.80143985094819840000e+16,
+        ln2_hi  = 6.93147180369123816490e-01,
+        ln2_lo  = 1.90821492927058770002e-10,
+        Lg1     = 6.666666666666735130e-01,
+        Lg2     = 3.999999999940941908e-01,
+        Lg3     = 2.857142874366239149e-01,
+        Lg4     = 2.222219843214978396e-01,
+        Lg5     = 1.818357216161805012e-01,
+        Lg6     = 1.531383769920937332e-01,
+        Lg7     = 1.479819860511658591e-01;
+
+    // based on fdlibm
+    double hfsq,f,s,z,R,w,t1,t2,dk;
+    int k,hx,i,j;
+    unsigned lx;
+
+    hx = __HI(x);       /* high word of x */
+    lx = __LO(x);       /* low  word of x */
+
+    k=0;
+    if (hx < 0x00100000) {          /* x < 2**-1022  */
+        if (((hx&0x7fffffff)|lx)==0) 
+            return -two54/zero;     /* log(+-0)=-inf */
+        if (hx<0) return (x-x)/zero;    /* log(-#) = NaN */
+        k -= 54; x *= two54; /* subnormal number, scale up x */
+        hx = __HI(x);       /* high word of x */
+    } 
+    if (hx >= 0x7ff00000) return x+x;
+    k += (hx>>20)-1023;
+    hx &= 0x000fffff;
+    i = (hx+0x95f64)&0x100000;
+    __HI(x) = hx|(i^0x3ff00000);    /* normalize x or x/2 */
+    k += (i>>20);
+    f = x-1.0;
+    if((0x000fffff&(2+hx))<3) { /* |f| < 2**-20 */
+        if(f==zero) if(k==0) return zero;  else {dk=(double)k;
+            return dk*ln2_hi+dk*ln2_lo;}
+        R = f*f*(0.5-0.33333333333333333*f);
+        if(k==0) return f-R; else {dk=(double)k;
+            return dk*ln2_hi-((R-dk*ln2_lo)-f);}
+    }
+    s = f/(2.0+f); 
+    dk = (double)k;
+    z = s*s;
+    i = hx-0x6147a;
+    w = z*z;
+    j = 0x6b851-hx;
+    t1= w*(Lg2+w*(Lg4+w*Lg6)); 
+    t2= z*(Lg1+w*(Lg3+w*(Lg5+w*Lg7))); 
+    i |= j;
+    R = t2+t1;
+    if(i>0) {
+        hfsq=0.5*f*f;
+        if(k==0) return f-(hfsq-s*(hfsq+R)); else
+            return dk*ln2_hi-((hfsq-(s*(hfsq+R)+dk*ln2_lo))-f);
+    } else {
+        if(k==0) return f-s*(f-R); else
+            return dk*ln2_hi-((s*(f-R)-dk*ln2_lo)-f);
+    }
+#endif
+    return x;
 }
 double log10(double x)
 {
-return x;
+    return x;
 }
 double exp(double x)
 {

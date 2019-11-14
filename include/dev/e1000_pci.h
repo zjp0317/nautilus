@@ -30,6 +30,10 @@
 
 void nk_ifconfig();
 
+#ifdef NAUT_CONFIG_PISCES
+int pisces_e1000_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec);
+#endif
+
 int e1000_pci_init(struct naut_info * naut);
 int e1000_pci_deinit();
 

@@ -63,6 +63,10 @@ void nk_mask_irq(uint8_t irq);
 void nk_unmask_irq(uint8_t irq);
 uint8_t nk_irq_is_assigned(uint8_t irq);
 
+#ifdef NAUT_CONFIG_PISCES
+uint8_t vec_to_irq (uint8_t vec);
+#endif
+
 uint8_t irq_to_vec (uint8_t irq);
 void irqmap_set_ioapic (uint8_t irq, struct ioapic * ioapic);
 void disable_8259pic(void);

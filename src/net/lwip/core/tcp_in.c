@@ -103,6 +103,9 @@ static int tcp_input_delayed_close(struct tcp_pcb *pcb);
 void
 tcp_input(struct pbuf *p, struct netif *inp)
 {
+    // zjp
+    printk("tcp_input p %p\n", p);
+    printk("tcp_input init flags %d\n", flags);
   struct tcp_pcb *pcb, *prev;
   struct tcp_pcb_listen *lpcb;
 #if SO_REUSE
@@ -130,6 +133,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
     /* drop short packets */
     LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: short packet (%"U16_F" bytes) discarded\n", p->tot_len));
     TCP_STATS_INC(tcp.lenerr);
+    // zjp
+    printk("tcp_input here1\n");
     goto dropped;
   }
 
@@ -215,12 +220,14 @@ tcp_input(struct pbuf *p, struct netif *inp)
   ackno = tcphdr->ackno = lwip_ntohl(tcphdr->ackno);
   tcphdr->wnd = lwip_ntohs(tcphdr->wnd);
 
+    printk("tcp_input 6 flags %d\n", flags);
   flags = TCPH_FLAGS(tcphdr);
   tcplen = p->tot_len + ((flags & (TCP_FIN | TCP_SYN)) ? 1 : 0);
 
   /* Demultiplex an incoming segment. First, we check if it is destined
      for an active connection. */
   prev = NULL;
+    printk("tcp_input 5 flags %d\n", flags);
 
   for (pcb = tcp_active_pcbs; pcb != NULL; pcb = pcb->next) {
     LWIP_ASSERT("tcp_input: active pcb->state != CLOSED", pcb->state != CLOSED);
@@ -246,6 +253,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
     }
     prev = pcb;
   }
+    printk("tcp_input 4 flags %d\n", flags);
 
   if (pcb == NULL) {
     /* If it did not go to an active connection, we check the connections
@@ -266,6 +274,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
       }
     }
 
+    printk("tcp_input 3 flags %d\n", flags);
     /* Finally, if we still did not get a match, we check all PCBs that
        are LISTENing for incoming connections. */
     prev = NULL;
@@ -319,11 +328,14 @@ tcp_input(struct pbuf *p, struct netif *inp)
       }
 
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packed for LISTENing connection.\n"));
+    // zjp
+    printk("tcp_input here3\n");
       tcp_listen_input(lpcb);
       pbuf_free(p);
       return;
     }
   }
+    printk("tcp_input 2 flags %d\n", flags);
 
 #if TCP_INPUT_DEBUG
   LWIP_DEBUGF(TCP_INPUT_DEBUG, ("+-+-+-+-+-+-+-+-+-+-+-+-+-+- tcp_input: flags "));
@@ -352,6 +364,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
       p->flags |= PBUF_FLAG_PUSH;
     }
 
+    printk("tcp_input 1 flags %d\n", flags);
     /* If there is data which was previously "refused" by upper layer */
     if (pcb->refused_data != NULL) {
       if ((tcp_process_refused_data(pcb) == ERR_ABRT) ||
@@ -365,11 +378,17 @@ tcp_input(struct pbuf *p, struct netif *inp)
         }
         TCP_STATS_INC(tcp.drop);
         MIB2_STATS_INC(mib2.tcpinerrs);
+    // zjp
+    printk("tcp_input aborted7\n");
         goto aborted;
       }
     }
     tcp_input_pcb = pcb;
+    // zjp
+    printk("tcp_input process flags %d\n", flags);
     err = tcp_process(pcb);
+    // zjp
+    printk("=tcp_input process %d\n", err);
     /* A return value of ERR_ABRT means that tcp_abort() was called
        and that the pcb has been freed. If so, we don't do anything. */
     if (err != ERR_ABRT) {
@@ -401,12 +420,16 @@ tcp_input(struct pbuf *p, struct netif *inp)
 #endif
             TCP_EVENT_SENT(pcb, (u16_t)acked16, err);
             if (err == ERR_ABRT) {
+    // zjp
+    printk("tcp_input aborted6\n");
               goto aborted;
             }
           }
           recv_acked = 0;
         }
         if (tcp_input_delayed_close(pcb)) {
+    // zjp
+    printk("tcp_input aborted5\n");
           goto aborted;
         }
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
@@ -428,6 +451,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
             }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
             tcp_abort(pcb);
+    // zjp
+    printk("tcp_input aborted4\n");
             goto aborted;
           }
 
@@ -439,6 +464,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
               pbuf_free(rest);
             }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+    // zjp
+    printk("tcp_input aborted3\n");
             goto aborted;
           }
 
@@ -474,6 +501,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
             }
             TCP_EVENT_CLOSED(pcb, err);
             if (err == ERR_ABRT) {
+    // zjp
+    printk("tcp_input aborted2\n");
               goto aborted;
             }
           }
@@ -481,6 +510,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
 
         tcp_input_pcb = NULL;
         if (tcp_input_delayed_close(pcb)) {
+    // zjp
+    printk("tcp_input aborted1\n");
           goto aborted;
         }
         /* Try to send something out. */
@@ -495,6 +526,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
     /* Jump target if pcb has been aborted in a callback (by calling tcp_abort()).
        Below this line, 'pcb' may not be dereferenced! */
 aborted:
+    // zjp
+    printk("tcp_input aborted\n");
     tcp_input_pcb = NULL;
     recv_data = NULL;
 
@@ -743,6 +776,8 @@ tcp_process(struct tcp_pcb *pcb)
       LWIP_ASSERT("tcp_input: pcb->state != CLOSED", pcb->state != CLOSED);
       recv_flags |= TF_RESET;
       pcb->flags &= ~TF_ACK_DELAY;
+          // zjp
+          printk("tcp_process here  %d\n", ERR_RST);
       return ERR_RST;
     } else {
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_process: unacceptable reset seqno %"U32_F" rcv_nxt %"U32_F"\n",

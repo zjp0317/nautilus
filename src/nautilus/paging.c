@@ -829,7 +829,12 @@ fill_page_tables (addr_t addr,
                     ulong_t size,
                     ulong_t flags)
 {
-    return __fill_page_tables ((pml4e_t*)read_cr3(), addr, map_addr, size, flags, 1);
+    //return __fill_page_tables ((pml4e_t*)read_cr3(), addr, map_addr, size, flags, 1);
+    addr_t aligned_addr = round_down(addr, PAGE_SIZE_2MB);
+    addr_t aligned_map_addr = round_down(map_addr, PAGE_SIZE_2MB);
+    addr_t aligned_addr_end = round_up(addr + size, PAGE_SIZE_2MB);
+    ulong_t aligned_size = aligned_addr_end - aligned_addr;
+    return __fill_page_tables ((pml4e_t*)read_cr3(), aligned_addr, aligned_map_addr, aligned_size, flags, 1);
 }
 
 static void
@@ -903,6 +908,7 @@ kern_ident_map (struct nk_mem_info * mem, ulong_t mbd)
      * by mapping from 0x0 to a large enough address, e.g., 1TB.
      * TODO: better design for page fault
      */
+    spinlock_init(&pagetable_lock);
     construct_ident_map_pisces(pml, lps);
 #else
     construct_ident_map(pml, lps, last_pfn<<PAGE_SHIFT);

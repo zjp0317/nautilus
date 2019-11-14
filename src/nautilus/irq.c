@@ -65,6 +65,19 @@ irq_to_vec (uint8_t irq)
     return nk_get_nautilus_info()->sys.int_info.irq_map[irq].vector;
 }
 
+// zjp, only support 0x1f ~ 0xef
+uint8_t
+vec_to_irq (uint8_t vec) {
+    uint8_t i;
+    if (vec <= 0x1f || vec > 0xef)
+        return 0xff; 
+    for(i = 0; i < 256; i++) {
+        if(nk_get_nautilus_info()->sys.int_info.irq_map[i].vector == vec)
+            return i;
+    }
+    return 0xff;
+}
+
 void
 irqmap_set_ioapic (uint8_t irq, struct ioapic * ioapic)
 {

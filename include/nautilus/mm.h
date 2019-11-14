@@ -89,6 +89,20 @@ int nk_kmem_init(void);
 
 struct mem_region;
 
+#ifdef NAUT_CONFIG_PISCES
+#define PISCES_MEM_UNIT     (1UL<<27) // 128MB
+#define INTERNAL_MEM_SIZE   (2 * PISCES_MEM_UNIT) // 256MB reserved for internal usage
+#define REGULAR_MEM_SIZE    (PISCES_MEM_UNIT) // 128MB for regular usage: runtime, apps, etc.
+#define MINIMUM_MEM_SIZE    (INTERNAL_MEM_SIZE + REGULAR_MEM_SIZE) // At least INTERNAL_MEM_SIZE + 128MB for booting nautilus-pisces
+
+#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+#define PREFETCH_THRESHOLD  (0.75)  // send async request for more memory if current mem usage >= 75%    
+#define DEFAULT_PREFETCH_SIZE   (2 * PISCES_MEM_UNIT) // round up of (PISCES_MEM_UNIT / 0.75)
+#endif
+#endif
+
 /* zjp: keep the old get_base_zone and get_region for lua runtime */
 struct mem_region * kmem_get_base_zone(void);
 struct mem_region * kmem_get_region_by_addr(ulong_t addr);
@@ -169,9 +183,20 @@ void *nk_gc_pdsgc_malloc_specific(uint64_t, int cpu);
 #endif
 #define malloc_specific(s,c) nk_gc_pdsgc_malloc_specific(s,c)
 #else
+
+// zjp use macro is not clean
+#ifdef NAUT_CONFIG_PISCES
+// correct free for now
+#define malloc(s) ({ NK_MALLOC_PROF_ENTRY(); void *p = kmem_malloc(s); NK_MALLOC_PROF_EXIT(); p; })
+#define mallocz(s) ({ NK_MALLOC_PROF_ENTRY(); void *p = kmem_mallocz(s); NK_MALLOC_PROF_EXIT(); p; })
+#define malloc_specific(s,c) ({ NK_MALLOC_PROF_ENTRY(); void *p = kmem_malloc_specific(s,c,0); NK_MALLOC_PROF_EXIT(); p; })
+void free(void* ptr);
+#else
 #define malloc(s) ({ NK_MALLOC_PROF_ENTRY(); void *p = kmem_malloc(s); NK_MALLOC_PROF_EXIT(); p; })
 #define malloc_specific(s,c) ({ NK_MALLOC_PROF_ENTRY(); void *p = kmem_malloc_specific(s,c,0); NK_MALLOC_PROF_EXIT(); p; })
 #define free(a) NK_FREE_PROF_ENTRY(); kmem_free(a); NK_FREE_PROF_EXIT();
+#endif
+
 #endif
 #endif
 

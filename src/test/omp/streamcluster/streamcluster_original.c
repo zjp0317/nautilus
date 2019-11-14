@@ -1215,11 +1215,14 @@ static int PStream_feof(PStream *p) {
 }
 
 static void outcenterIDs( Points* centers, long* centerIDs, char* outfile ) {
+    /*
   FILE* fp = fopen(outfile, "w");
   if( 0 && fp==NULL ) {
     fprintf(stderr, "error opening %s\n",outfile);
     exit(1);
   }
+  */
+#define fp (stderr)
   int* is_a_median = (int*)calloc( sizeof(int), centers->num );
   for( int i =0 ; i< centers->num; i++ ) {
     is_a_median[centers->p[i].assign] = 1;

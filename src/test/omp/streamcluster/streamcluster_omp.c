@@ -20,6 +20,9 @@
 #include <nautilus/naut_string.h>
 #include <rt/omp/omp.h>
 
+#define printf(fmt, args...) nk_vc_printf(fmt, ##args);
+#define fprintf(foo,fmt, args...) nk_vc_printf(fmt, ##args);
+
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
 #endif
@@ -32,7 +35,8 @@ typedef int bool;
 #define pthread_barrier_t int
 #define pthread_t int
 
-#define calloc(n,s) ({ void *_p=malloc(n*s); memset(_p,0,n*s); _p; })
+#define calloc(n,s) ({ void *_p=mallocz(n*s); _p; })
+//#define calloc(n,s) ({ void *_p=malloc(n*s); memset(_p,0,n*s); _p; })
 
 #define new(t) calloc(sizeof(t),1)
 #define newa(t,n) calloc(sizeof(t),n)
@@ -98,7 +102,9 @@ static double gettime() {
     // struct timeval t;
     //  gettimeofday(&t,NULL);
     //return (double)t.tv_sec+t.tv_usec*1e-6;
-    
+#ifdef NAUT_CONFIG_PISCES
+    return nk_sched_get_realtime_secs();
+#endif
     return ((double)(nk_sched_get_realtime()))/1e9;
 }
 
@@ -412,6 +418,7 @@ static double pgain(long x, Points *points, double z, long int *numcenters, int 
     We first build a table to index the positions of the *lower* fields. 
   */
 	
+
   int count = 0;
   for( int i = k1; i < k2; i++ ) {
     if( is_center[i] ) {
@@ -548,6 +555,7 @@ static double pgain(long x, Points *points, double z, long int *numcenters, int 
   // Now, check whether opening x would save cost; if so, do it, and
   // otherwise do nothing
 
+
   if ( gl_cost_of_opening_x < 0 ) {
     //  we'd save money by opening x; we'll do it
 		#pragma omp parallel for
@@ -649,6 +657,7 @@ static float pFL(Points *points, int *feasible, int numfeasible,
 	      *k, cost, cost - z*(*k));
     }
 #endif
+
 #ifdef ENABLE_THREADS
     pthread_barrier_wait(barrier);
 #endif
@@ -821,7 +830,6 @@ static float pkmedian(Points *points, long kmin, long kmax, long* kfinal,
   while (k < kmin) {
 #ifdef PRINTINFO
     if( pid == 0 ) {
-      printf("%lf %lf\n", loz, hiz);
       printf("Speedy indicates we should try lower z\n");
     }
 #endif
@@ -843,7 +851,6 @@ static float pkmedian(Points *points, long kmin, long kmax, long* kfinal,
 	is_center[points->p[i].assign]= true;
       }
     }
-
 #ifdef ENABLE_THREADS
   pthread_barrier_wait(barrier);
 #endif
@@ -1057,16 +1064,20 @@ static int PStream_feof(PStream *p) {
 }
 
 static void outcenterIDs( Points* centers, long* centerIDs, char* outfile ) {
+    /*
   FILE* fp = fopen(outfile, "w");
   if( fp==NULL ) {
     fprintf(stderr, "error opening %s\n",outfile);
     exit(1);
   }
+  */
+  #define fp (stderr)
   int* is_a_median = (int*)calloc( sizeof(int), centers->num );
   for( int i =0 ; i< centers->num; i++ ) {
     is_a_median[centers->p[i].assign] = 1;
   }
 
+    return; // zjp don't print results
   for( int i = 0; i < centers->num; i++ ) {
     if( is_a_median[i] ) {
       fprintf(fp, "%u\n", centerIDs[i]);
@@ -1077,7 +1088,7 @@ static void outcenterIDs( Points* centers, long* centerIDs, char* outfile ) {
       fprintf(fp,"\n\n");
     }
   }
-  fclose(fp);
+  //fclose(fp);
 }
 
 static void streamCluster( PStream* stream, 
@@ -1101,8 +1112,6 @@ static void streamCluster( PStream* stream,
     points.p[i].coord = &block[i*dim];
   }
 
-	
-	
   Points centers;
   centers.dim = dim;
   centers.p = (Point *)malloc(centersize*sizeof(Point));
@@ -1130,11 +1139,15 @@ static void streamCluster( PStream* stream,
       points.p[i].weight = 1.0;
     }
 
+
     switch_membership = (bool*)malloc(points.num*sizeof(bool));
     is_center = (bool*)calloc(points.num,sizeof(bool));
     center_table = (int*)malloc(points.num*sizeof(int));
 
+
+    double s_time = gettime();
     localSearch(&points,kmin, kmax,&kfinal);
+  printf("local search time %lf secs\n",gettime() - s_time);
 
     fprintf(stderr,"finish local search\n");
     contcenters(&points);
@@ -1172,10 +1185,31 @@ static void streamCluster( PStream* stream,
   localSearch( &centers, kmin, kmax ,&kfinal );
   contcenters(&centers);
   outcenterIDs( &centers, centerIDs, outfile);
+
+  // zjp add free
+  free(points.p);
+  free(centers.p);
+  free(centerBlock);
+  free(centerIDs);
 }
 
 int test_omp_streamcluster(int numt)
 {
+    // zjp reset all globals for muitiple runs
+nproc = 0; 
+c = d = 0;
+ompthreads = 0;
+#ifdef PROFILE
+time_local_search =0;
+time_speedy =0;
+time_select_feasible =0;
+time_gain =0;
+time_shuffle =0;
+time_gain_dist =0;
+time_gain_init =0;
+#endif 
+    double s_time = gettime();
+
     char *outfilename = newa(char,MAXNAMESIZE);
     char *infilename = newa(char,MAXNAMESIZE);
   long kmin, kmax, n, chunksize, clustersize;
@@ -1204,6 +1238,7 @@ int test_omp_streamcluster(int numt)
   n = 65536;
   chunksize = 65536;
   clustersize = 1000;
+
   strcpy(infilename, "none");
   strcpy(outfilename, "output.txt");
   nproc = numt;
@@ -1253,6 +1288,26 @@ int test_omp_streamcluster(int numt)
 #endif
 
   nk_omp_thread_deinit();
-  
+
+// zjp add free
+    dela(outfilename);
+    dela(infilename);
+if(switch_membership) {
+    free(switch_membership);
+    switch_membership = NULL;
+}
+if(is_center) {
+    free(is_center);
+    is_center = NULL;
+}
+if(center_table) {
+    free(center_table);
+    center_table = NULL;
+}
+if(block) {
+    free(block);
+    block = NULL;
+}
+
   return 0;
 }

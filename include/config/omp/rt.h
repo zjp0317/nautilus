@@ -1,1 +1,1 @@
-#undef NAUT_CONFIG_OMP_RT
+#define NAUT_CONFIG_OMP_RT 1

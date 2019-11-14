@@ -98,6 +98,9 @@ struct pisces_boot_params {
     // Memory info: num_blocks * block_size = base_mem_size 
     u64 num_blocks;
     u64 block_size;
+
+    // prefetch
+    //u64 prefetch_info;
 } __attribute__((packed));
 
 extern struct pisces_boot_params *pisces_boot_params;

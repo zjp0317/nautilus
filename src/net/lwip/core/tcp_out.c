@@ -1345,6 +1345,8 @@ tcp_rst(u32_t seqno, u32_t ackno,
   const ip_addr_t *local_ip, const ip_addr_t *remote_ip,
   u16_t local_port, u16_t remote_port)
 {
+          // zjp
+          printk("tcp_rst here \n"); 
   struct pbuf *p;
   struct tcp_hdr *tcphdr;
   struct netif *netif;

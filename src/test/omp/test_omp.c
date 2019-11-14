@@ -66,6 +66,7 @@ omp_nested (void)
 int 
 test_omp (void)
 {
+#if 0 // zjp only care about streamcluster
     nk_omp_thread_init();
     nk_vc_printf("Starting simple test\n");
     omp_simple();
@@ -75,6 +76,10 @@ test_omp (void)
 //out:
     nk_vc_printf("OMP test finished\n");
     nk_omp_thread_deinit();
+#endif
+
+
+    test_omp_streamcluster(6);
     return 0;
 }
 

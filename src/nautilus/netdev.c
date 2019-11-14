@@ -31,7 +31,8 @@
 #endif
 
 #define ERROR(fmt, args...) ERROR_PRINT("netdev: " fmt, ##args)
-#define DEBUG(fmt, args...) DEBUG_PRINT("netdev: " fmt, ##args)
+#define DEBUG(fmt, args...) printk("netdev: " fmt, ##args)
+//#define DEBUG(fmt, args...) DEBUG_PRINT("netdev: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("netdev: " fmt, ##args)
 
 #if 0
@@ -192,7 +193,6 @@ int nk_net_dev_receive_packet(struct nk_net_dev *dev,
 {
     struct nk_dev *d = (struct nk_dev *)(&(dev->dev));
     struct nk_net_dev_int *di = (struct nk_net_dev_int *)(d->interface);
-    DEBUG("receive packet on %s (len=%lu, type=%lx)\n", d->name,len,type);
     
     switch (type) {
     case NK_DEV_REQ_CALLBACK:

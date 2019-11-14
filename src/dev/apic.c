@@ -1014,6 +1014,12 @@ uint64_t apic_cycles_to_realtime(struct apic_dev *apic, uint64_t cycles)
     return 1000ULL*(cycles/(apic->cycles_per_us));
 }
 
+#ifdef NAUT_CONFIG_PISCES
+double apic_cycles_to_realtime_secs(struct apic_dev *apic, uint64_t cycles)
+{
+    return (double)(cycles/(apic->cycles_per_us)) / 1000000.0;
+}
+#endif
 
 // this is 10 ms (1/100)
 #define TEST_TIME_SEC_RECIP 100

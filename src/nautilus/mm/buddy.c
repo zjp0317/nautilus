@@ -353,7 +353,7 @@ buddy_create_pool(struct buddy_memzone * zone,
         return NULL;
     }
 
-    mp = kmem_malloc(sizeof(struct buddy_mempool));
+    mp = kmem_malloc_internal(sizeof(struct buddy_mempool));
 
     if (!mp) {
         ERROR_PRINT("Could not allocate mempool\n");
@@ -369,10 +369,10 @@ buddy_create_pool(struct buddy_memzone * zone,
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << pool_order) / (1UL << zone->min_order);
     uint64_t bytes_for_bitmap = BITS_TO_LONGS(mp->num_blocks) * sizeof(ulong_t);
-    mp->tag_bits   = kmem_malloc(bytes_for_bitmap);
+    mp->tag_bits   = kmem_malloc_internal(bytes_for_bitmap);
     /* Allocate for order bits and flag bits */
-    mp->order_bits = kmem_malloc(bytes_for_bitmap);
-    mp->flag_bits   = kmem_malloc(bytes_for_bitmap);
+    mp->order_bits = kmem_malloc_internal(bytes_for_bitmap);
+    mp->flag_bits   = kmem_malloc_internal(bytes_for_bitmap);
 
     /* Initially mark all minimum-sized blocks as allocated */
     bitmap_zero(mp->tag_bits, mp->num_blocks);

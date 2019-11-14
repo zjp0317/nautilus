@@ -89,9 +89,12 @@ idle (void * in, void ** out)
 	runtime = nk_sched_get_runtime(get_cur_thread());
 	if ((runtime - last_steal) > (NAUT_CONFIG_WORK_STEALING_INTERVAL_MS*1000000ULL)) {
 	    preempt_disable();
-	    DEBUG_PRINT("CPU %d trying to steal\n",my_cpu_id());
-	    nk_sched_cpu_mug(-1,NAUT_CONFIG_WORK_STEALING_AMOUNT,&numstolen);
-	    DEBUG_PRINT("CPU %d stole %lu threads\n",my_cpu_id(),numstolen);
+        // zjp
+        if(per_cpu_get(system)->num_cpus > 1) {
+            DEBUG_PRINT("CPU %d trying to steal\n",my_cpu_id());
+            nk_sched_cpu_mug(-1,NAUT_CONFIG_WORK_STEALING_AMOUNT,&numstolen);
+            DEBUG_PRINT("CPU %d stole %lu threads\n",my_cpu_id(),numstolen);
+        }
 	    last_steal = runtime;
 	    preempt_enable();
 	}

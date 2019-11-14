@@ -1,1 +1,1 @@
-#define NAUT_CONFIG_HZ 10
+#define NAUT_CONFIG_HZ 250

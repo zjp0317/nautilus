@@ -686,8 +686,10 @@ user_typed (char * buf, void * priv, int offset)
 #include <nautilus/waitqueue.h>
 nk_wait_queue_t pisces_waitq; // hold shell until xbuf receives a shell cmd (string)
 char* pisces_buf = NULL; // a buffer to store the received string 
+int pisces_cond = 0;
 static int check_pisces_buf_cond(void *state) {
-    return 0;
+    //return 0;
+    return pisces_cond;
 }
 #endif 
 

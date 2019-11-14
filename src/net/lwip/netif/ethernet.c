@@ -173,6 +173,8 @@ ethernet_input(struct pbuf *p, struct netif *netif)
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_LEVEL_WARNING,
           ("ethernet_input: IPv4 packet dropped, too short (%"S16_F"/%"S16_F")\n",
           p->tot_len, ip_hdr_offset));
+        //zjp
+          printk("ethernet_input: IPv4 packet dropped, too short"); 
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("Can't move over header in packet"));
         goto free_and_return;
       } else {

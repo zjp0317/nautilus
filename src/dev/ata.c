@@ -199,6 +199,10 @@ static int ata_drive_detect(struct ata_blkdev_state *s)
 	 t==0xeb14 ? "PATAPI" : t==0x9669 ? "SATAPI" :
 	 t==0x0 ? "PATA" : t==0xc33c ? "SATA" : "UNKNOWN");
     
+    printk("devnum %u detected as type 0x%x (%s-%s)\n",
+	 devnum, t, s->type==CD ? "CD" : s->type==HD ? "HD" : "NONE",
+	 t==0xeb14 ? "PATAPI" : t==0x9669 ? "SATAPI" :
+	 t==0x0 ? "PATA" : t==0xc33c ? "SATA" : "UNKNOWN");
     return 0;
 }
 

@@ -77,16 +77,22 @@ GLOBAL(early_irq_common)
     SAVE_GPRS()
 
 
-#if 0
+#if 0 // zjp test codes
 
     //movq 120(%rsp), %rsi # irq num
     //cmp $32, %rsi
     //jne zzz
+    /*
     movabs $zjptest, %rcx
     movq (%rcx), %rax
     cmp $2010, %rax
     jne zzz
+    */
     movq 120(%rsp), %rsi # irq num
+
+    cmp $33, %rsi
+    jne zzz
+
     movabs $zjpstr, %rdi
     movl %gs:0x20, %edx
     movl %gs:0x24, %ecx

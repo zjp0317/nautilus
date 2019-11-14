@@ -373,6 +373,8 @@ return_noroute:
 err_t
 ip4_input(struct pbuf *p, struct netif *inp)
 {
+    // zjp
+    //printf("ip4_input p %p\n", p);
   struct ip_hdr *iphdr;
   struct netif *netif;
   u16_t iphdr_hlen;
@@ -409,6 +411,22 @@ ip4_input(struct pbuf *p, struct netif *inp)
   iphdr_hlen *= 4;
   /* obtain ip length in bytes */
   iphdr_len = lwip_ntohs(IPH_LEN(iphdr));
+
+    // zjp
+    if((IPH_PROTO(iphdr) == IP_PROTO_TCP)) {
+        int ii=0;
+        uint8_t* dd = (u8_t*)iphdr;
+        if((dd[15] == 0x90 && dd[14] == 0x43 && dd[13] == 0x10)
+            || (dd[19] == 0x90 && dd[18] == 0x43 && dd[17] == 0x10)) { 
+            printk("ip tcp %d \n", iphdr_len);
+            int ll = iphdr_len > 100 ? 100: iphdr_len;
+            for(;ii<ll;ii++) {
+                printk("%02x ", *dd);
+                dd++;
+            }
+            printk("\n");
+        }
+    }
 
   /* Trim pbuf. This is especially required for packets < 60 bytes. */
   if (iphdr_len < p->tot_len) {

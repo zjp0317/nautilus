@@ -14,8 +14,10 @@
 //#include <string.h>
 //#include <stdio.h>
 
+
 #ifndef SOCK_TARGET_HOST
-#define SOCK_TARGET_HOST  "10.10.10.2"
+//#define SOCK_TARGET_HOST  "10.10.10.2"
+char SOCK_TARGET_HOST[20];
 #endif
 
 #ifndef SOCK_TARGET_PORT
@@ -473,8 +475,14 @@ sockex_testtwoselects(void *arg)
   printf("sockex_testtwoselects finished successfully\n");
 }
 
-void socket_examples_init(void)
+
+
+void socket_examples_init(char* addr)
+//void socket_examples_init(void)
 {
+  memcpy(SOCK_TARGET_HOST, addr, strlen(addr) + 1);
+  printf("target host %s\n", SOCK_TARGET_HOST);
+
   sys_thread_new("sockex_nonblocking_connect", sockex_nonblocking_connect, NULL, 0, 0);
   sys_thread_new("sockex_testrecv", sockex_testrecv, NULL, 0, 0);
   /*sys_thread_new("sockex_testtwoselects", sockex_testtwoselects, NULL, 0, 0);*/

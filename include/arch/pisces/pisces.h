@@ -117,6 +117,19 @@ struct cmd_mem_add {
     u64 size;
 } __attribute__((packed));
 
+struct pisces_pci_spec {
+    char  name[128];
+    u32 bus;
+    u32 dev;
+    u32 func;
+} __attribute__((packed));
+
+struct cmd_add_pci_dev {
+    struct pisces_cmd      hdr;
+    struct pisces_pci_spec spec;
+    u32 device_ipi_vector;
+} __attribute__((packed));
+
 #if 0
 struct vm_path {
     uint8_t file_name[256];

@@ -8,6 +8,9 @@ obj-y += bsp.o
 obj-y += net_udp_echo.o
 obj-y += test.o
 
+obj-y += new-malloc-test.o
+obj-y += calloc-test.o
+
 obj-$(NAUT_CONFIG_TEST_CACHEPART) += cachepart.o
 
 obj-$(NAUT_CONFIG_OMP_RT_TESTS)  += omp/

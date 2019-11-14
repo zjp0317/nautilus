@@ -12,6 +12,9 @@
 extern char* pisces_buf;
 extern nk_wait_queue_t pisces_waitq;
 
+#include <dev/e1000e_pci.h>
+#include <dev/pci.h>
+
 #ifndef NAUT_CONFIG_DEBUG_PISCES_CTRL
 #undef DEBUG_PRINT
 #define DEBUG_PRINT(fmt, args...) 
@@ -57,7 +60,7 @@ cmd_handler(u8    * data,
             }
             strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
             // wakeup nautilus' shell
-            nk_wait_queue_wake_all_extended(&(pisces_waitq), 1);
+            nk_wait_queue_wake_all_extended(&(pisces_waitq), 0);
             break;
         }
         case ENCLAVE_CMD_ADD_MEM: {
@@ -140,6 +143,25 @@ cmd_handler(u8    * data,
             break;
 #endif
         }
+        case ENCLAVE_CMD_ADD_V3_PCI: {
+            struct cmd_add_pci_dev pci_cmd;
+            memcpy(&pci_cmd, cmd, sizeof(struct cmd_add_pci_dev));
+            struct pisces_pci_spec *dev_spec = &pci_cmd.spec;
+            printk("Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func); 
+            // TODO Note that currently nautilus directly scan and probe. Thus the dev has already been registered
+            ret = pisces_pci_add(dev_spec->bus, dev_spec->dev, dev_spec->func);
+            if(ret != 0)
+                printk("Falied to Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
+            uint8_t vec;
+            ret = pisces_e1000e_pci_init(dev_spec->bus, dev_spec->dev, dev_spec->func, &vec);
+            if(ret != 0)
+                printk("Falied to init PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
+            else
+                printk("Successfully init PCI name %s bus %u dev %u func %u vec %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func, vec);
+                // use MSI now
+            //resp.status = vec;
+            break;
+        }
         default:
             break;
     }
@@ -149,11 +171,6 @@ cmd_handler(u8    * data,
     __asm__ __volatile__ ("":::"memory"); 
     pisces_xbuf_complete(xbuf_desc, (u8*)&resp, resp_len); 
     __asm__ __volatile__ ("":::"memory");
-    extern unsigned long zjptest;
-    zjptest = 2010;
-    //nk_thread_t * cur = get_cur_thread();
-    //printk("--zjp get cur thread %p rsp %p\n", cur, cur->rsp);
-    //printk("CMD Done\n");
 	return;
 }
 

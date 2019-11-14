@@ -149,7 +149,7 @@ config HZ
 
 config VIRTIO_PCI
     bool "Core Virtio PCI Driver"
-    depends on X86_64_HOST
+    depends on X86_64_HOST || PISCES
     default n
     help
       Adds the basic Virtio PCI interface
@@ -191,7 +191,7 @@ config DEBUG_VIRTIO_BLK
 
 config E1000_PCI
     bool "E1000 PCI NIC Driver"
-    depends on X86_64_HOST
+    depends on X86_64_HOST || PISCES
     default n
     help
       Adds the basic E1000 PCI network interface driver
@@ -205,7 +205,7 @@ config DEBUG_E1000_PCI
 
 config E1000E_PCI
     bool "E1000E PCI NIC Driver"
-    depends on X86_64_HOST
+    depends on X86_64_HOST || PISCES
     default n
     help
       Adds the basic E1000E PCI network interface driver

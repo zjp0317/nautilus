@@ -224,8 +224,12 @@ mm_boot_init (ulong_t mbd)
      */
 #ifdef NAUT_CONFIG_PISCES
     mm_boot_reserve_mem(0, kern_start + kern_size);
-    // There're multiple blocks, reserve all blocks but the 1st one
-    mm_boot_reserve_mem(pisces_boot_params->base_mem_paddr + pisces_boot_params->block_size, pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size);
+
+
+    // reserve all blocks but the internal ones 
+    //mm_boot_reserve_mem(pisces_boot_params->base_mem_paddr + pisces_boot_params->block_size, pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size);
+    uint64_t internal_blocks = (INTERNAL_MEM_SIZE + pisces_boot_params->block_size - 1) / pisces_boot_params->block_size;
+    mm_boot_reserve_mem(pisces_boot_params->base_mem_paddr + internal_blocks * pisces_boot_params->block_size, pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size);
 #else
 #ifdef NAUT_CONFIG_HVM_HRT
     mm_boot_reserve_vmem(kern_start, kern_size);

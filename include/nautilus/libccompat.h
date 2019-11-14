@@ -325,9 +325,11 @@ GEN_HDR(__towupper_l)
 GEN_HDR(__uselocale)
 GEN_HDR(__strftime_l)
 GEN_HDR(mbsnrtowcs)
+#ifndef NAUT_CONFIG_PISCES
 GEN_HDR(pthread_mutex_init)
 GEN_HDR(pthread_mutex_unlock)
 GEN_HDR(pthread_mutex_lock)
+#endif
 #ifdef __cplusplus
 }
 #endif

@@ -28,7 +28,9 @@
 #ifndef __E1000E_PCI
 #define __E1000E_PCI
 
-
+#ifdef NAUT_CONFIG_PISCES
+int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec);
+#endif
 
 int e1000e_pci_init(struct naut_info * naut); 
 int e1000e_pci_deinit();

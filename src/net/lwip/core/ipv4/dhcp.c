@@ -76,7 +76,9 @@
 #include "lwip/etharp.h"
 #include "lwip/prot/dhcp.h"
 
-#include <string.h>
+// zjp
+#include "nautilus/naut_string.h"
+//#include <string.h>
 
 /** DHCP_CREATE_RAND_XID: if this is set to 1, the xid is created using
  * LWIP_RAND() (this overrides DHCP_GLOBAL_XID)
@@ -1115,6 +1117,23 @@ dhcp_bind(struct netif *netif)
 
   netif_set_addr(netif, &dhcp->offered_ip_addr, &sn_mask, &gw_addr);
   /* interface is used by routing now that an address is set */
+  // zjp
+  printk("DHCP: ip %d.%d.%d.%d netmask %d.%d.%d.%d gw %d.%d.%d.%d  Netif: flags %u name %c%c%d\n",
+    ip4_addr1_16(netif_ip4_addr(netif)),
+    ip4_addr2_16(netif_ip4_addr(netif)),
+    ip4_addr3_16(netif_ip4_addr(netif)),
+    ip4_addr4_16(netif_ip4_addr(netif)),
+
+    ip4_addr1_16(netif_ip4_netmask(netif)),
+    ip4_addr2_16(netif_ip4_netmask(netif)),
+    ip4_addr3_16(netif_ip4_netmask(netif)),
+    ip4_addr4_16(netif_ip4_netmask(netif)),
+
+    ip4_addr1_16(netif_ip4_gw(netif)),
+    ip4_addr2_16(netif_ip4_gw(netif)),
+    ip4_addr3_16(netif_ip4_gw(netif)),
+    ip4_addr4_16(netif_ip4_gw(netif)),
+    netif->flags, netif->name[0], netif->name[1], netif->num);
 }
 
 /**

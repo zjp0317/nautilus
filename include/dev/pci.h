@@ -254,7 +254,9 @@ uint32_t pci_cfg_readl(uint8_t bus, uint8_t slot, uint8_t fun, uint8_t off);
 void pci_cfg_writew(uint8_t bus, uint8_t slot, uint8_t fun, uint8_t off, uint16_t val);
 void pci_cfg_writel(uint8_t bus, uint8_t slot, uint8_t fun, uint8_t off, uint32_t val);
 
-
+#ifdef NAUT_CONFIG_PISCES
+int pisces_pci_add (uint8_t bus, uint8_t dev, uint8_t fun);
+#endif
 
 int pci_init (struct naut_info * naut);
 

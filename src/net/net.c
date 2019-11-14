@@ -156,6 +156,7 @@ handle_net (char * buf, void * priv)
 
         struct nk_net_lwip_config conf = { .dns_ip = 0x08080808 } ;
 
+#if 0 // zjp
         if (nk_net_lwip_start(&conf)) {
             nk_vc_printf("Failed to start lwip\n");
             return 0;
@@ -166,11 +167,31 @@ handle_net (char * buf, void * priv)
             .netmask = 0xffffff00,
             .gateway = 0x0a0a0a01 };
 
-
         if (nk_net_lwip_add_interface(&inter)) {
             nk_vc_printf("Failed to add interface\n");
             return 0;
         }
+#else
+            /*
+  IP4_ADDR(&e1000_gw, 10, 10, 10, 1);
+  IP4_ADDR(&e1000_ipaddr, 10, 10, 10, 10);
+  IP4_ADDR(&e1000_netmask, 255, 255, 255, 0);
+  */
+        if (nk_net_lwip_start(&conf)) {
+            nk_vc_printf("Failed to start lwip\n");
+            return 0;
+        }
+        struct nk_net_lwip_interface inter = { .name = "e1000e-0",
+            .ipaddr = 0x0a0a0a0a,
+            .netmask = 0xffffff00,
+            .gateway = 0x0a0a0a01 };
+        if (nk_net_lwip_add_interface(&inter)) {
+            nk_vc_printf("Failed to add interface\n");
+            return 0;
+        }
+#endif
+
+
 
         nk_vc_printf("LWIP started with defaults and default interface added\n");
         return 0;
@@ -254,12 +275,23 @@ handle_net (char * buf, void * priv)
 #endif
 
 #ifdef NAUT_CONFIG_NET_LWIP_APP_SOCKET_EXAMPLES
+    if (sscanf(buf,"net lwip socket_examples %s", intname)==1) { 
+        void socket_examples_init(char*);
+        nk_vc_printf("Starting socket_examples (outgoing)\n");
+        socket_examples_init(intname);
+        return 0;
+    }
+    /*
     if (!strcasecmp(buf,"net lwip socket_examples")) {
+        void socket_examples_init();
+        nk_vc_printf("Starting socket_examples (outgoing)\n");
+        socket_examples_init();
         void socket_examples_init();
         nk_vc_printf("Starting socket_examples (outgoing)\n");
         socket_examples_init();
         return 0;
     }
+    */
 #endif
 
 #ifdef NAUT_CONFIG_NET_LWIP_APP_LWIP_IPVCD

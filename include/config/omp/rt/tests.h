@@ -1,0 +1,1 @@
+#define NAUT_CONFIG_OMP_RT_TESTS 1

@@ -176,6 +176,10 @@ struct nk_thread *nk_sched_reanimate(nk_stack_size_t min_stack_size,
 // return ns
 uint64_t nk_sched_get_realtime();
 
+#ifdef NAUT_CONFIG_PISCES
+double nk_sched_get_realtime_secs(); 
+#endif
+
 // Print out threads on cpu
 // -1 => all CPUs
 void nk_sched_dump_threads(int cpu);

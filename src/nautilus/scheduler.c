@@ -1073,6 +1073,7 @@ int nk_sched_initial_placement()
 {
     struct sys_info * sys = per_cpu_get(system);
     return (int)(get_random() % sys->num_cpus);
+    //return  sys->num_cpus - 1; // zjp
 }
 
 int nk_sched_thread_post_create(nk_thread_t * t)
@@ -3253,7 +3254,6 @@ static inline void rt_thread_update_aperiodic(rt_thread *t, rt_scheduler *schedu
     }
 }
 
-
 // in nanoseconds
 static uint64_t cur_time()
 {
@@ -3268,6 +3268,16 @@ uint64_t nk_sched_get_realtime()
 { 
     return cur_time();
 }
+
+#ifdef NAUT_CONFIG_PISCES
+double nk_sched_get_realtime_secs() 
+{ 
+    struct sys_info *sys = per_cpu_get(system);
+    struct apic_dev *apic = sys->cpus[my_cpu_id()]->apic;
+    uint64_t c = rdtsc();
+    return apic_cycles_to_realtime_secs(apic, c);
+}
+#endif
 
 static void reset_state(rt_thread *thread)
 {

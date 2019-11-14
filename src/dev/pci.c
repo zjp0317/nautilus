@@ -36,7 +36,8 @@
 #endif
 
 #define PCI_PRINT(fmt, args...) printk("PCI: " fmt, ##args)
-#define PCI_DEBUG(fmt, args...) DEBUG_PRINT("PCI: " fmt, ##args)
+//#define PCI_DEBUG(fmt, args...) DEBUG_PRINT("PCI: " fmt, ##args)
+#define PCI_DEBUG(fmt, args...) printk("PCI: " fmt, ##args)
 #define PCI_WARN(fmt, args...)  WARN_PRINT("PCI: " fmt, ##args)
 #define PCI_ERROR(fmt, args...) ERROR_PRINT("PCI: " fmt, ##args)
 
@@ -323,11 +324,11 @@ static void pci_msi_detect(struct pci_dev *d)
 {
   uint8_t co = pci_dev_get_capability(d, 0x5);
   if (!co) { 
-    //PCI_DEBUG("device does not have MSI capability\n");
+    PCI_DEBUG("device does not have MSI capability\n");
     return;
   }
 
-  //PCI_DEBUG("device has MSI capabilitity\n");
+  PCI_DEBUG("device has MSI capabilitity\n");
 
   d->msi.co = co;
 
@@ -544,7 +545,49 @@ pci_bus_probe (struct pci_info * pci, uint8_t bus)
     }
 }
 
+#ifdef NAUT_CONFIG_PISCES
+struct pci_bus * pisces_pci_find_bus(uint8_t bus_num, struct pci_info *pci) 
+{
+  struct list_head *curbus;
+  struct pci_bus * bus;
 
+  list_for_each(curbus,&(pci->bus_list)) { 
+    struct pci_bus *bus = list_entry(curbus,struct pci_bus,bus_node);
+    if (bus->num == bus_num) { 
+      return bus;
+    }
+  }
+  return NULL;
+}
+
+int
+pisces_pci_add (uint8_t bus, uint8_t dev, uint8_t fun)
+{
+    struct pci_info *pci = nk_get_nautilus_info()->sys.pci;
+    struct list_head *curbus, *curdev;
+    struct pci_bus * bus_ptr = NULL;
+    int mf;
+
+    bus_ptr = pisces_pci_find_bus(bus, pci);
+    if(!bus_ptr) {
+        PCI_DEBUG("Create new bus %d\n", bus);
+        bus_ptr = pci_bus_create(bus, pci);
+        if(!bus_ptr) {
+            PCI_ERROR("Could not create PCI bus\n");
+            return -1;
+        }
+    }
+
+    struct pci_dev * pdev = pci_find_device(bus, dev, fun);
+    if(pdev) {
+        printk("Device already exists. Bus %u dev %u fun %u\n", bus, dev, fun);
+        return 0;
+    }
+
+    pci_func_probe(bus_ptr, dev, fun, &mf);
+    return 0;
+}
+#endif
 
 /* 
  * 
@@ -583,6 +626,10 @@ pci_pci_bridge_probe (struct pci_info * pci, uint8_t bus, uint8_t dev, uint8_t f
 static void 
 pci_bus_scan (struct pci_info * pci)
 {
+#ifdef NAUT_CONFIG_PISCES
+    // devices are added by pisces
+    return;
+#endif
     uint8_t hdr_type;
     uint8_t fun;
 
@@ -1264,6 +1311,10 @@ uint8_t  pci_dev_get_capability(struct pci_dev *d, uint8_t cap_id)
 
 int pci_dev_enable_msi(struct pci_dev *dev, int base_vec, int num_vecs, int target_cpu)
 {
+#ifdef NAUT_CONFIG_PISCES
+  PCI_DEBUG("Nautilus-Pisces enable msi on nautilus-cpu %d, real lapic_id %d\n", target_cpu, nk_get_nautilus_info()->sys.cpus[target_cpu]->lapic_id);
+  target_cpu = nk_get_nautilus_info()->sys.cpus[target_cpu]->lapic_id;
+#endif
   uint32_t mar_low;
   uint16_t mdr;
   uint32_t ctrl;
@@ -1304,11 +1355,14 @@ int pci_dev_enable_msi(struct pci_dev *dev, int base_vec, int num_vecs, int targ
   // we use RH=0 because we don't want lowest priority
   // we use DM=0 because we want physical delivery
 
+  // zjp use DM =1 for logic
+  //mar_low |= (0x1 << 2);
+
   mdr = (base_vec & 0xff);
   // We use DM=0 to get fixed delivery
   // We use LEV=0 because we don't care and are using edge
   // We use TM=0 to get edge
-  
+
   // this gets us the type and next ptr as well, but 
   // manipulating ctrl seems to require a 32 bit write...
 
@@ -1517,6 +1571,10 @@ int pci_dev_is_pending_msi(struct pci_dev *dev, int vec)
 
 int pci_dev_set_msi_x_entry(struct pci_dev *dev, int num, int vec, int target_cpu)
 {
+#ifdef NAUT_CONFIG_PISCES
+  PCI_DEBUG("Nautilus-Pisces enable msi on nautilus-cpu %d, real lapic_id %d\n", target_cpu, nk_get_nautilus_info()->sys.cpus[target_cpu]->lapic_id);
+  target_cpu = nk_get_nautilus_info()->sys.cpus[target_cpu]->lapic_id;
+#endif
   struct pci_msi_x_info *m = &dev->msix;
   pci_msi_x_table_entry_t *t = m->table + num;
 

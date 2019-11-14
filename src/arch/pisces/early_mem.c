@@ -59,15 +59,12 @@ arch_detect_mem_map (mmap_info_t * mm_info,
     /* 
      * Note that our buddy allocator requires ~1.5MB metadata for 128MB memory (see buddy.c).
      * --Map[0]. 0x0 ~ base_mem_paadr, mark as BAD RAM.
-     * --Map[1]. The 1st block is for internal usage:
-     *     Page tables, devices, metadata of the 1st buddy pool, etc.
-     *     TODO: actually, the 1st buddy pool of each zone, when numa support is implemented.
-     * --Map[2]. The 2nd block is the 1st buddy pool, which is used for:
-     *     metadata of 3rd buddy pool, app/runtime usage
-     * --Map[3]. The rest blocks if exist. 
+     * --Map[1]. INTERNAL_MEM_SIZE MB for internal usage:
+     * --Map[2]. The rest blocks if exist. 
      */
     int n = 0; // index for memory_map[]
     uint64_t addr = 0;
+    uint64_t internal_blocks = 0;
     uint64_t base_mem_end = pisces_boot_params->base_mem_paddr + pisces_boot_params->base_mem_size;
     /* keep filling memory_map till the end of base_mem */
     for(n = 0; addr < base_mem_end; n++) {
@@ -76,14 +73,20 @@ arch_detect_mem_map (mmap_info_t * mm_info,
         }
         uint64_t len;
         uint32_t type;
-        if(addr < pisces_boot_params->base_mem_paddr) {
+        if(addr < pisces_boot_params->base_mem_paddr) { // n == 0
             len = pisces_boot_params->base_mem_paddr;
             type = MULTIBOOT_MEMORY_BADRAM;
         } else {
-            if(n >= 3) { // if more than 2 blocks exist
-                len = pisces_boot_params->base_mem_size - 2 * pisces_boot_params->block_size;
-            } else {
+            if(n >= 2) { // if more than 2 blocks exist
+                //len = pisces_boot_params->base_mem_size - 2 * pisces_boot_params->block_size;
+                //len = pisces_boot_params->base_mem_size - internal_blocks * pisces_boot_params->block_size;
+
+                // these blocks are for regular usage. The removal can be per-block.
                 len = pisces_boot_params->block_size;
+            } else { // n == 1
+                //len = pisces_boot_params->block_size;
+                internal_blocks = (INTERNAL_MEM_SIZE + pisces_boot_params->block_size - 1 ) / pisces_boot_params->block_size;
+                len = internal_blocks * pisces_boot_params->block_size;
             }
 
             type = MULTIBOOT_MEMORY_AVAILABLE;

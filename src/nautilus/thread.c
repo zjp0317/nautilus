@@ -385,6 +385,12 @@ nk_thread_create (nk_thread_fun_t fun,
         *tid = (nk_thread_id_t)t;
     }
 
+#ifdef NAUT_CONFIG_FPU_SAVE
+    // clone the floating point state
+    extern void nk_fp_save(void *dest);
+    nk_fp_save(t->fpu_state);
+#endif
+
     THREAD_DEBUG("Thread create creating new thread with t=%p, tid=%lu\n", t, t->tid);
 
     return 0;
@@ -1146,12 +1152,13 @@ __thread_fork (void)
     }
 #endif
 
+/* zjp move this to thread_create
 #ifdef NAUT_CONFIG_FPU_SAVE
     // clone the floating point state
     extern void nk_fp_save(void *dest);
     nk_fp_save(t->fpu_state);
 #endif
-
+*/
     if (nk_sched_make_runnable(t,t->current_cpu,1)) { 
 	THREAD_ERROR("Scheduler failed to run thread (%p, tid=%u) on cpu %u\n",
 		    t, t->tid, t->current_cpu);

@@ -94,7 +94,9 @@ static void parse_packet(nk_ethernet_packet_t *packet){
 	packet->len=42;
     }
     else if(type0==0x08 && type1==0x00){
-	u8_t l = data[16]*256;
+        // zjp fix
+	u32_t l = data[16]*256;
+	//u8_t l = data[16]*256;
 	l += data[17];
 	packet->len = l+14;
     }
@@ -107,6 +109,18 @@ static void recv_callback(nk_net_dev_status_t status,
 {
     DEBUG("recv_callback\n");
     parse_packet(packet);
+#if 1
+    printk("recv_callback\n");
+    // zjp
+    uint8_t *t = packet->raw;
+    if(1) { // t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+        printk("recv %d\n",packet->len);
+        int i = 0;
+        for(i=0;i<100;i++)
+            printk("%02x ", t[i]);
+        printk("\n");
+    }
+#endif
     /*
     int i=0;
     printk("%d\n",packet->len);
@@ -246,6 +260,15 @@ low_level_output(struct netif *netif, struct pbuf *p)
       len+=q->len;
   }
     pk->len = len;
+    // zjp
+    uint8_t *t = pk->raw;
+    if(1 ){ // t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+        printk("send %d\n",pk->len);
+        int i = 0;
+        for(i=0;i<100;i++)
+            printk("%02x ", t[i]);
+        printk("\n");
+    }
 
     if(nk_net_ethernet_agent_device_send_packet(ethernetif->device, pk, NK_DEV_REQ_NONBLOCKING, 0, 0)){
 	ERROR("Fail to send a packet\n");

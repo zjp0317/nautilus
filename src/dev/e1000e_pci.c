@@ -43,7 +43,8 @@
 #endif
 
 #define INFO(fmt, args...)     INFO_PRINT("e1000e_pci: " fmt, ##args)
-#define DEBUG(fmt, args...)    DEBUG_PRINT("e1000e_pci: " fmt, ##args)
+#define DEBUG(fmt, args...)    printk("e1000e_pci: " fmt, ##args)
+//#define DEBUG(fmt, args...)    DEBUG_PRINT("e1000e_pci: " fmt, ##args)
 #define ERROR(fmt, args...)    ERROR_PRINT("e1000e_pci: " fmt, ##args)
 
 #define READ_MEM(d, o)         (*((volatile uint32_t*)(((d)->mem_start)+(o))))
@@ -558,6 +559,11 @@ static int e1000e_init_transmit_ring(struct e1000e_state *state)
   
   // TCTL Reg: EN = 1b, PSP = 1b, CT = 0x0f (16d), COLD = 0x3F (63d)
   uint32_t tctl_reg = E1000E_TCTL_EN | E1000E_TCTL_PSP | E1000E_TCTL_CT | E1000E_TCTL_COLD_FD;
+  
+#if 0  // zjp 
+  tctl_reg = 0x3103F0FA;
+#endif
+
   WRITE_MEM(state, E1000E_TCTL_OFFSET, tctl_reg);
   DEBUG("init tx fn: TCTL = 0x%08x expects 0x%08x\n",
         READ_MEM(state, E1000E_TCTL_OFFSET), 
@@ -684,6 +690,11 @@ static int e1000e_init_receive_ring(struct e1000e_state *state)
   // write rctl register specifing the receive mode
   uint32_t rctl_reg = E1000E_RCTL_EN | E1000E_RCTL_SBP | E1000E_RCTL_UPE | E1000E_RCTL_LPE | E1000E_RCTL_DTYP_LEGACY | E1000E_RCTL_BAM | E1000E_RCTL_RDMTS_HALF | E1000E_RCTL_PMCF;
    
+#if 0
+   // zjp
+   rctl_reg = 0x04008002;
+#endif
+
   // receive buffer threshold and size
   WRITE_MEM(state, E1000E_RCTL_OFFSET, rctl_reg);
 
@@ -700,6 +711,15 @@ static int e1000e_send_packet(uint8_t* packet_addr,
                               uint64_t packet_size,
                               struct e1000e_state *state)
 {
+#if 1        // zjp
+        uint32_t status_reg = READ_MEM(state, E1000E_STATUS_OFFSET);
+        printk("init fn: %08x status.lu 0x%01x %s\n",
+                status_reg,
+                (status_reg & E1000E_STATUS_LU) >> 1,
+                (status_reg & E1000E_STATUS_LU) ? "link is up.":"link is down.");
+        uint32_t ctrl_reg = READ_MEM(state, E1000E_CTRL_OFFSET);
+        printk("final ctrl  %08x\n", ctrl_reg);
+#endif
   DEBUG("send pkt fn: pkt_addr 0x%p pkt_size: %d\n", packet_addr, packet_size);
 
   DEBUG("send pkt fn: before sending TDH = %d TDT = %d tail_pos = %d\n",
@@ -708,6 +728,8 @@ static int e1000e_send_packet(uint8_t* packet_addr,
         TXD_TAIL);
   DEBUG("send pkt fn: tpt total packet transmit: %d\n",
         READ_MEM(state, E1000E_TPT_OFFSET));
+
+  INFO("total packet received %d\n", READ_MEM(state, E1000E_TPR_OFFSET));
 
   if (packet_size > MAX_TU) {
     ERROR("send pkt fn: packet is too large.\n");
@@ -997,6 +1019,8 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
 {
   DEBUG("irq_handler fn: vector: 0x%x rip: 0x%p s: 0x%p\n",
         vec, excp->rip, s);
+  printk("irq_handler fn: vector: 0x%x rip: 0x%p s: 0x%p\n",
+        vec, excp->rip, s);
 
   // #measure
   uint64_t irq_start = 0;
@@ -1136,15 +1160,421 @@ static struct nk_net_dev_int ops = {
 };
 
 
+#ifdef NAUT_CONFIG_PISCES
+int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec) 
+{
+    static uint32_t num = 0;
+
+    struct pci_info *pci = nk_get_nautilus_info()->sys.pci;
+    struct pci_dev * pdev = pci_find_device(bus, dev, fun);
+    if(!pdev)
+        return -1;
+    struct pci_cfg_space *cfg = &pdev->cfg;
+    if (cfg->vendor_id==INTEL_VENDOR_ID && cfg->device_id==E1000E_DEVICE_ID) {
+        int foundio=0, foundmem=0;
+
+        DEBUG("Found E1000E Device\n");
+        struct e1000e_state *state = malloc(sizeof(struct e1000e_state));
+
+        if (!state) {
+            ERROR("Cannot allocate device\n");
+            return -1;
+        }
+
+        memset(state,0,sizeof(*state));
+
+        // We will only support MSI for now
+
+        // find out the bar for e1000e
+        for (int i=0;i<6;i++) {
+            uint32_t bar = pci_cfg_readl(bus, dev, 0, 0x10 + i*4);
+            uint32_t size;
+            DEBUG("bar %d: 0x%0x\n",i, bar);
+            // go through until the last one, and get out of the loop
+            if (bar==0) {
+                break;
+            }
+            // get the last bit and if it is zero, it is the memory
+            // " -------------------------"  one, it is the io
+            if (!(bar & 0x1)) {
+                uint8_t mem_bar_type = (bar & 0x6) >> 1;
+                if (mem_bar_type != 0) { // 64 bit address that we do not handle it
+                    ERROR("memory bar type 0x%x. Assume no bar is larger than 4GB (zjp: lspci -x)\n", mem_bar_type);
+                }
+            }
+
+            // determine size
+            // write all 1s, get back the size mask
+            pci_cfg_writel(bus, dev, 0, 0x10 + i*4, 0xffffffff);
+            // size mask comes back + info bits
+            // write all ones and read back. if we get 00 (negative size), size = 4.
+            size = pci_cfg_readl(bus, dev, 0, 0x10 + i*4);
+
+            // mask all but size mask
+            if (bar & 0x1) { // I/O
+                size &= 0xfffffffc;
+            } else { // memory
+                size &= 0xfffffff0;
+            }
+            // two complement, get back the positive size
+            size = ~size;
+            size++;
+
+            // now we have to put back the original bar
+            pci_cfg_writel(bus, dev, 0, 0x10 + i*4, bar);
+
+            if (!size) { // size = 0 -> non-existent bar, skip to next one
+                continue;
+            }
+
+            uint32_t start = 0;
+            if (bar & 0x1) { // IO
+                start = state->ioport_start = bar & 0xffffffc0;
+                state->ioport_end = state->ioport_start + size;
+                foundio=1;
+            }
+
+            if (!(bar & 0xe) && (i == 0)) { //MEM
+                start = state->mem_start = bar & 0xfffffff0;
+                state->mem_end = state->mem_start + size;
+                foundmem=1;
+            }
+
+            DEBUG("bar %d is %s address=0x%x size=0x%x\n", i,
+                    bar & 0x1 ? "io port":"memory", start, size);
+        }
+
+        INFO("Adding e1000e device: bus=%u dev=%u func=%u: ioport_start=%p ioport_end=%p mem_start=%p mem_end=%p\n",
+                bus, dev, 0,
+                state->ioport_start, state->ioport_end,
+                state->mem_start, state->mem_end);
+
+        // update page table
+        if(0 != fill_page_tables(state->mem_start, state->mem_start, state->mem_end - state->mem_start, PTE_PRESENT_BIT | PTE_WRITABLE_BIT)) {
+            ERROR("Failed to update page table for e1000: base_addr=0x%lx size=0x%lx\n", state->mem_start, state->mem_end - state->mem_start);
+            return -1;
+        }
+
+#if 0
+        uint16_t old_cmd = pci_cfg_readw(bus,dev,0,E1000E_PCI_CMD_OFFSET);
+        DEBUG("old pci cmd: 0x%04x\n", old_cmd);
+        uint16_t pci_cmd = E1000E_PCI_CMD_MEM_ACCESS_EN | E1000E_PCI_CMD_IO_ACCESS_EN | E1000E_PCI_CMD_LANRW_EN; // | E1000E_PCI_CMD_INT_DISABLE;
+        pci_cmd |= old_cmd;
+#else
+        uint16_t pci_cmd = E1000E_PCI_CMD_MEM_ACCESS_EN | E1000E_PCI_CMD_IO_ACCESS_EN | E1000E_PCI_CMD_LANRW_EN; // | E1000E_PCI_CMD_INT_DISABLE;
+#endif
+        DEBUG("init fn: new pci cmd: 0x%04x\n", pci_cmd);
+        pci_cfg_writew(bus,dev,0,E1000E_PCI_CMD_OFFSET, pci_cmd);
+        DEBUG("init fn: pci_cmd 0x%04x expects 0x%04x\n",
+                pci_cfg_readw(bus,dev, 0, E1000E_PCI_CMD_OFFSET),
+                pci_cmd);
+        DEBUG("init fn: pci status 0x%04x\n",
+                pci_cfg_readw(bus,dev, 0, E1000E_PCI_STATUS_OFFSET));
+
+        list_add(&state->node, &dev_list);
+        //list_add(&dev_list, &state->node);
+
+        sprintf(state->name, "e1000e-%d", num);
+        num++;
+
+        state->pci_dev = pdev;
+
+        state->netdev = nk_net_dev_register(state->name, 0, &ops, (void *)state);
+
+        if (!state->netdev) {
+            ERROR("init fn: Cannot register the e1000e device \"%s\"", state->name);
+            return -1;
+        }
+
+        if (!foundmem) {
+            ERROR("init fn: ignoring device %s as it has no memory access method\n",state->name);
+            return -1;
+        }
+
+        // now bring up the device / interrupts
+
+        // disable interrupts
+        WRITE_MEM(state, E1000E_IMC_OFFSET, 0xffffffff);
+        DEBUG("init fn: device reset\n");
+        WRITE_MEM(state, E1000E_CTRL_OFFSET, E1000E_CTRL_RST);
+        // delay about 5 us (manual suggests 1us)
+        udelay(RESTART_DELAY);
+        // disable interrupts again after reset
+        WRITE_MEM(state, E1000E_IMC_OFFSET, 0xffffffff);
+
+        uint32_t mac_high = READ_MEM(state, E1000E_RAH_OFFSET);
+        uint32_t mac_low = READ_MEM(state, E1000E_RAL_OFFSET);
+        uint64_t mac_all = ((uint64_t)mac_low+((uint64_t)mac_high<<32)) & 0xffffffffffff;
+        DEBUG("init fn: mac_all = 0x%lX\n", mac_all);
+        DEBUG("init fn: mac_high = 0x%x mac_low = 0x%x\n", mac_high, mac_low);
+
+        memcpy((void*)state->mac_addr, &mac_all, MAC_LEN);
+
+        // set the bit 22th of GCR register
+        uint32_t gcr_old = READ_MEM(state, E1000E_GCR_OFFSET);
+        WRITE_MEM(state, E1000E_GCR_OFFSET, gcr_old | E1000E_GCR_B22);
+        uint32_t gcr_new = READ_MEM(state, E1000E_GCR_OFFSET);
+        DEBUG("init fn: GCR = 0x%08x old gcr = 0x%08x tested %s\n",
+                gcr_new, gcr_old,
+                gcr_new & E1000E_GCR_B22 ? "pass":"fail");
+        WRITE_MEM(state, E1000E_GCR_OFFSET, E1000E_GCR_B22);
+
+        WRITE_MEM(state, E1000E_FCAL_OFFSET, 0);
+        WRITE_MEM(state, E1000E_FCAH_OFFSET, 0);
+        WRITE_MEM(state, E1000E_FCT_OFFSET, 0);
+
+        // uint32_t ctrl_reg = (E1000E_CTRL_FD | E1000E_CTRL_FRCSPD | E1000E_CTRL_FRCDPLX | E1000E_CTRL_SLU | E1000E_CTRL_SPEED_1G) & ~E1000E_CTRL_ILOS;
+        // p50 manual
+        uint32_t ctrl_reg = E1000E_CTRL_SLU | E1000E_CTRL_RFCE | E1000E_CTRL_TFCE;
+
+#if 0        // zjp
+        
+        uint32_t old_ctrl = READ_MEM(state, E1000E_CTRL_OFFSET);
+        printk("old ctrl %08x ctrl_reg %08x\n", old_ctrl, ctrl_reg);
+        ctrl_reg |= old_ctrl;
+        ctrl_reg |= (1 << 30); // VLAN mode
+        ctrl_reg |= 0x40100248;
+#endif
+
+        WRITE_MEM(state, E1000E_CTRL_OFFSET, ctrl_reg);
+
+        DEBUG("init fn: e1000e ctrl = 0x%08x expects 0x%08x\n",
+                READ_MEM(state, E1000E_CTRL_OFFSET),
+                ctrl_reg);
+
+        uint32_t status_reg = READ_MEM(state, E1000E_STATUS_OFFSET);
+        DEBUG("init fn: e1000e status = 0x%08x\n", status_reg);
+        DEBUG("init fn: does status.fd = 0x%01x? %s\n",
+                E1000E_STATUS_FD, 
+                status_reg & E1000E_STATUS_FD ? "full deplex":"halt deplex");
+        DEBUG("init fn: status.speed 0x%02x %s\n",
+                e1000e_read_speed_bit(status_reg, E1000E_STATUS_SPEED_MASK, 
+                    E1000E_STATUS_SPEED_SHIFT), 
+                e1000e_read_speed_char(status_reg, E1000E_STATUS_SPEED_MASK, 
+                    E1000E_STATUS_SPEED_SHIFT));
+
+        DEBUG("init fn: status.asdv 0x%02x %s\n",
+                e1000e_read_speed_bit(status_reg, 
+                    E1000E_STATUS_ASDV_MASK, 
+                    E1000E_STATUS_ASDV_SHIFT),
+                e1000e_read_speed_char(status_reg, 
+                    E1000E_STATUS_ASDV_MASK,
+                    E1000E_STATUS_ASDV_SHIFT));
+
+        if (e1000e_read_speed_bit(status_reg, E1000E_STATUS_SPEED_MASK, E1000E_STATUS_SPEED_SHIFT) !=  e1000e_read_speed_bit(status_reg, E1000E_STATUS_ASDV_MASK, E1000E_STATUS_ASDV_SHIFT)) {
+            ERROR("init fn: setting speed and detecting speed do not match!!!\n");
+        }
+
+        DEBUG("init fn: status.lu 0x%01x %s\n",
+                (status_reg & E1000E_STATUS_LU) >> 1,
+                (status_reg & E1000E_STATUS_LU) ? "link is up.":"link is down.");
+        DEBUG("init fn: status.phyra %s Does the device require PHY initialization?\n",
+                status_reg & E1000E_STATUS_PHYRA ? "1 Yes": "0 No");
+
+        DEBUG("init fn: init receive ring\n");
+        e1000e_init_receive_ring(state);
+        DEBUG("init fn: init transmit ring\n");
+        e1000e_init_transmit_ring(state);
+
+        WRITE_MEM(state, E1000E_IMC_OFFSET, 0);
+        DEBUG("init fn: IMC = 0x%08x expects 0x%08x\n",
+                READ_MEM(state, E1000E_IMC_OFFSET), 0);
+
+        DEBUG("init fn: interrupt driven\n");
+
+
+        if (pdev->msi.type == PCI_MSI_NONE) {
+            ERROR("Device %s does not support MSI - skipping\n", state->name);
+            // TODO, go back to ipi way?
+            return -1;
+        }
+
+
+#if 0  // zjp try msi-x
+        uint64_t base_vec = 0;
+        int i;
+        int failed=0;
+
+        DEBUG("zjp setting up interrupts via MSI-X\n");
+
+        if(pci_dev_enable_msi_x(pdev)) {
+            ERROR("failed to enabvle msi-x\n");
+            return -1;
+        }
+
+        uint16_t num_vec = pdev->msix.size;
+
+        // now fill out the device's MSI-X table
+        for (i=0;i<num_vec;i++) {
+            // find a free vector
+            // note that prioritization here is your problem
+            if (idt_find_and_reserve_range(1,0,&base_vec)) {
+                ERROR("cannot get vector...\n");
+                return -1;
+            }
+            // register your handler for that vector
+            if (register_int_handler(base_vec, e1000e_irq_handler, state)) {
+                ERROR("failed to register int handler\n");
+                return -1;
+                // failed....
+            }
+            // set the table entry to point to your handler
+            if (pci_dev_set_msi_x_entry(pdev,i,base_vec,0)) {
+                ERROR("failed to set MSI-X entry\n");
+                return -1;
+            }
+            // and unmask it (device is still masked)
+            if (pci_dev_unmask_msi_x_entry(pdev,i)) {
+                ERROR("failed to unmask entry\n");
+                return -1;
+            }
+            DEBUG("finished setting up entry %d for vector %u on cpu 0\n",i,base_vec);
+        }
+
+        // unmask entire function
+        if (pci_dev_unmask_msi_x_all(pdev)) {
+            ERROR("failed to unmask device\n");
+            return -1;
+        }
+
+#else
+        uint64_t num_vecs = pdev->msi.num_vectors_needed;
+        uint64_t base_vec = 0;
+
+        if (idt_find_and_reserve_range(num_vecs,1,&base_vec)) {
+            ERROR("Cannot find %d vectors for %s - skipping\n",num_vecs,state->name);
+            return -1;
+        }
+
+#if 1 // zjp
+        base_vec = 61;
+        num_vecs = 1;
+#endif
+        DEBUG("%s vectors are %d..%d\n",state->name,base_vec,base_vec+num_vecs-1);
+        
+        *vec = base_vec; // just in case
+
+#if 1
+        //if (pci_dev_enable_msi(pdev, base_vec, num_vecs, nk_get_nautilus_info()->sys.cpus[0]->lapic_id)) {
+        if (pci_dev_enable_msi(pdev, base_vec, num_vecs, 0)) {
+            ERROR("Failed to enable MSI for device %s - skipping\n", state->name);
+            return -1;
+        }
+#endif
+        int i;
+        int failed=0;
+
+        for (i=base_vec;i<(base_vec+num_vecs);i++) {
+            if (register_int_handler(i, e1000e_irq_handler, state)) {
+                ERROR("Failed to register handler for vector %d on device %s - skipping\n",i,state->name);
+                failed=1;
+                break;
+            }
+        }
+
+        if (!failed) { 
+            for (i=base_vec; i<(base_vec+num_vecs);i++) {
+                if (pci_dev_unmask_msi(pdev, i)) {
+                    ERROR("Failed to unmask interrupt %d for device %s\n",i,state->name);
+                    failed = 1;
+                    break;
+                }
+            }
+        }
+
+#if 0
+        if(!failed) {
+        //if (pci_dev_enable_msi(pdev, base_vec, num_vecs, nk_get_nautilus_info()->sys.cpus[0]->lapic_id)) {
+            if (pci_dev_enable_msi(pdev, base_vec, num_vecs, 0)) {
+                ERROR("Failed to enable MSI for device %s - skipping\n", state->name);
+                failed = -1;
+            }
+        }
+#endif
+
+
+#endif // zjp end try msi-x
+
+        if (!failed) { 
+            // interrupts should now be occuring
+
+            // now configure device
+            // interrupt delay value = 0 -> does not delay
+            WRITE_MEM(state, E1000E_TIDV_OFFSET, 0);
+            // receive interrupt delay timer = 0
+            // -> interrupt when the device receives a package
+            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD);
+#if 0            // zjp
+            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, 0x20);
+            WRITE_MEM(state, E1000E_TIDV_OFFSET, 0x8);
+#endif       
+            DEBUG("init fn: RDTR new 0x%08x alias 0x%08x expect 0x%08x\n",
+                    READ_MEM(state, E1000E_RDTR_OFFSET_NEW),
+                    READ_MEM(state, E1000E_RDTR_OFFSET_ALIAS),
+                    E1000E_RDTR_FPD);
+            WRITE_MEM(state, E1000E_RADV_OFFSET, 0);
+
+            // enable only transmit descriptor written back, receive interrupt timer
+            // rx queue 0
+            uint32_t ims_reg = 0;
+            ims_reg = E1000E_ICR_TXDW | E1000E_ICR_TXQ0 | E1000E_ICR_RXT0 | E1000E_ICR_RXQ0;
+            WRITE_MEM(state, E1000E_IMS_OFFSET, ims_reg);
+            state->ims_reg = ims_reg;
+            e1000e_interpret_ims(state);
+            // after the interrupt is turned on, the interrupt handler is called
+            // due to the transmit descriptor queue empty.
+
+            uint32_t icr_reg = READ_MEM(state, E1000E_ICR_OFFSET);
+            // e1000e_interpret_ims(state);
+            DEBUG("init fn: ICR before writting with 0xffffffff\n");
+            // e1000e_interpret_icr(state);
+            WRITE_MEM(state, E1000E_ICR_OFFSET, 0xffffffff);
+            // e1000e_interpret_icr(state);
+            DEBUG("init fn: finished writting ICR with 0xffffffff\n");
+
+            // optimization 
+            WRITE_MEM(state, E1000E_AIT_OFFSET, 0);
+            WRITE_MEM(state, E1000E_TADV_OFFSET, 0);
+            DEBUG("init fn: end init fn --------------------\n");
+
+            INFO("%s operational\n",state->name);
+
+#if 1        // zjp
+        status_reg = READ_MEM(state, E1000E_STATUS_OFFSET);
+        printk("init fn: %08x status.lu 0x%01x %s\n",
+                status_reg,
+                (status_reg & E1000E_STATUS_LU) >> 1,
+                (status_reg & E1000E_STATUS_LU) ? "link is up.":"link is down.");
+        ctrl_reg = READ_MEM(state, E1000E_CTRL_OFFSET);
+        printk("final ctrl  %08x\n", ctrl_reg);
+
+        uint8_t co = pci_dev_get_capability(pdev,0x5);
+        uint32_t  ctrl = pci_dev_cfg_readl(pdev,co);
+        printk("final msi ctrl reg  %08x\n", ctrl);
+        ctrl = pci_dev_cfg_readl(pdev,co+4);
+        printk("final msi low-32 addr reg  %08x\n", ctrl);
+        ctrl = pci_dev_cfg_readl(pdev,co+8);
+        printk("final msi high-32 addr reg  %08x\n", ctrl);
+        ctrl = pci_dev_cfg_readl(pdev,co+12);
+        printk("final msi data  reg  %08x\n", ctrl);
+#endif
+            return 0;
+        }
+    }
+
+    return -1;
+}
+#endif
+
 int e1000e_pci_init(struct naut_info * naut)
 {
-  struct pci_info *pci = naut->sys.pci;
-  struct list_head *curbus, *curdev;
-  uint16_t num = 0;
+    struct pci_info *pci = naut->sys.pci;
+    struct list_head *curbus, *curdev;
+    uint16_t num = 0;
 
-  INFO("init\n");
+    INFO("init\n");
 
-  if (!pci) {
+    if (!pci) {
     ERROR("No PCI info\n");
     return -1;
   }

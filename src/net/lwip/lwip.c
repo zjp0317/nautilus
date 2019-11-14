@@ -79,6 +79,9 @@
 #include "lwip/dns.h"
 #include "netif/ethernetif.h"
 
+// zjp
+#include "lwip/dhcp.h"
+
 volatile static int done = 0;
 
 static struct nk_net_lwip_config config;
@@ -126,6 +129,11 @@ int nk_net_lwip_add_interface(struct nk_net_lwip_interface *intconf)
 
     netif_add(inter, &ip, &netmask, &gw, intconf->name, ethernetif_init, tcpip_input);
     netif_set_up(inter);
+
+    // zjp
+    netif_set_default(inter);
+    printk("zjp dhcp start\n");
+    dhcp_start(inter); 
 
     INFO("interface %s added\n", intconf->name);
 	

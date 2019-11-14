@@ -362,6 +362,9 @@ uint32_t apic_realtime_to_ticks(struct apic_dev *apic, uint64_t ns);
 uint64_t apic_realtime_to_cycles(struct apic_dev *apic, uint64_t ns);
 // ns
 uint64_t apic_cycles_to_realtime(struct apic_dev *apic, uint64_t cycles);
+#ifdef NAUT_CONFIG_PISCES
+double apic_cycles_to_realtime_secs(struct apic_dev *apic, uint64_t cycles);
+#endif
 
 void     apic_set_oneshot_timer(struct apic_dev *apic, uint32_t ticks);
 

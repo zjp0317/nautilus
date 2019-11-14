@@ -288,8 +288,8 @@ init (unsigned long mbd,
     // We ask for 2 memory blocks at least.
     // --The 1st block is used for boot allocator, and all pages for dynamic page table.
     // --The rest block is for kmem buddy allocator. 
-    if(pisces_boot_params->num_blocks < 2) {
-        ERROR_PRINT("Booting Nautilus requires at least 2 mem blocks. Assgiend %lu block(s).", pisces_boot_params->num_blocks);
+    if(pisces_boot_params->base_mem_size < MINIMUM_MEM_SIZE) {
+        ERROR_PRINT("Insufficient memory. At least %lu MB (where %lu MB are reserved for nautilus' internal usage)\n", MINIMUM_MEM_SIZE >> 20, INTERNAL_MEM_SIZE >> 20);
         return;
     }
 
@@ -299,7 +299,7 @@ init (unsigned long mbd,
     
     nk_low_level_memset(naut, 0, sizeof(struct naut_info));
 
-    fpu_init(naut, FPU_BSP_INIT);
+    //fpu_init(naut, FPU_BSP_INIT);
 
     // Now we are safe to use optimized code that relies
     // on SSE
@@ -309,6 +309,7 @@ init (unsigned long mbd,
     spinlock_init(&printk_lock);
 
     setup_idt();
+    fpu_init(naut, FPU_BSP_INIT);
 
     nk_int_init(&(naut->sys));
 
@@ -576,6 +577,7 @@ init (unsigned long mbd,
     runtime_init();
 
     printk("Nautilus boot thread yielding (indefinitely)\n");
+
 
     /* we don't come back from this */
     idle(NULL, NULL);

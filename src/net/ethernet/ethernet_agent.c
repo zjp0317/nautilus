@@ -43,7 +43,8 @@
 #endif
 
 #define ERROR(fmt, args...) ERROR_PRINT("ethernet_agent: " fmt, ##args)
-#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_agent: " fmt, ##args)
+#define DEBUG(fmt, args...) printk("ethernet_agent: " fmt, ##args)
+//#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_agent: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("ethernet_agent: " fmt, ##args)
 
 #define AGENT_LIST_LOCK_CONF uint8_t _agent_list_lock_flags

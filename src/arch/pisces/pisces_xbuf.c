@@ -296,11 +296,11 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
     reset_flags(xbuf);
     mb();
 
-    nk_wait_queue_wake_all_extended(&(desc->xbuf_waitq), 1); // waitq_wakeup(&(desc->xbuf_waitq));
+    nk_wait_queue_wake_all_extended(&(desc->xbuf_waitq), 0); // waitq_wakeup(&(desc->xbuf_waitq));
     return 0;
 
 err:
-    nk_wait_queue_wake_all_extended(&(desc->xbuf_waitq), 1); // waitq_wakeup(&(desc->xbuf_waitq));
+    nk_wait_queue_wake_all_extended(&(desc->xbuf_waitq), 0); // waitq_wakeup(&(desc->xbuf_waitq));
     return -1;
 }
 
@@ -346,7 +346,7 @@ pisces_xbuf_complete(struct pisces_xbuf_desc * desc,
 
     __asm__ __volatile__ ("":::"memory");
 
-    printk("Xbuf IS now complete\n");
+    //printk("Xbuf IS now complete\n");
 
     send_data(xbuf, data, data_len);
 
@@ -366,8 +366,8 @@ ipi_handler (excp_entry_t * excp,
     u32  data_len  = 0;
     int ret = 0;
 
-    printk("\nIPI Received %ld\n", vec);
-    printk("desc=%p\n", desc);
+    //printk("\nIPI Received %ld\n", vec);
+    //printk("desc=%p\n", desc);
 
     if (desc == NULL) {
         printk("IPI Handled for unknown XBUF\n");
@@ -405,7 +405,7 @@ ipi_handler (excp_entry_t * excp,
         //printk("Calling Receive handler for IPI\n");
         desc->recv_handler(data, data_len, desc->private_data);
     } else {
-        printk("IPI Arrived for XBUF without a handler\n");
+        //printk("IPI Arrived for XBUF without a handler\n");
         //	xbuf->complete = 1;
         raise_flag(xbuf, XBUF_COMPLETE);
     }

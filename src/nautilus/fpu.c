@@ -125,7 +125,8 @@ int xm_handler (excp_entry_t * excp, excp_vec_t vec, void *state)
 {
     uint32_t m;
     asm volatile ("stmxcsr %[_m]" : [_m] "=m" (m) : : "memory");
-    FPU_WARN("SIMD Floating point exception (MXCSR=0x%x)\n", m);
+    
+    //FPU_WARN("SIMD Floating point exception (MXCSR=0x%x)\n", m);
     return 0;
 }
 
@@ -266,6 +267,9 @@ enable_sse (void)
 
     m = 0x00001f80; // mask all FPU exceptions, no denormals are zero
     asm volatile ("ldmxcsr %[_m]" :: [_m] "m" (m) : "memory");
+
+
+
 }
 
 
