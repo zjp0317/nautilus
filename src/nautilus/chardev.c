@@ -72,7 +72,7 @@ struct nk_char_dev * nk_char_dev_find(char *name)
 {
     DEBUG("find %s\n",name);
     struct nk_dev *d = nk_dev_find(name);
-    if (d->type!=NK_DEV_CHAR) {
+    if (!d || d->type!=NK_DEV_CHAR) {
 	DEBUG("%s not found\n",name);
 	return 0;
     } else {
