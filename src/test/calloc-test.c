@@ -22,7 +22,8 @@
 
 #define START_PSIZE 2 // 128
 
-#define MAX_PSIZE (1024ul) //(1024ul*1024ul*1024ul)
+uint64_t MAX_PSIZE = 0; // in KB
+//#define MAX_PSIZE (4*1024ul) //(1024ul*1024ul*1024ul)
 //#define MAX_PSIZE (1024ul*1024ul*64ul) //(1024ul*1024ul*1024ul)
 
 static double gettime() {
@@ -39,6 +40,15 @@ static double gettime() {
 static int
 handle_calloc_test (char * buf, void * priv)
 {
+    int ret = 0;
+    if ((ret = sscanf(buf, "calloc-test %lu",&MAX_PSIZE)) != 1) {
+        MAX_PSIZE = 1*1024;
+        printf("Use default setting:  MAX_PSIZE %lu\n", MAX_PSIZE);
+    } else {
+        MAX_PSIZE *= 1024;
+        printf("Use setting:  MAX_PSIZE %lu\n", MAX_PSIZE);
+    }
+
     double begin = gettime();
     double mtime = 0.0;
     double ctime = 0.0;
@@ -67,6 +77,7 @@ handle_calloc_test (char * buf, void * priv)
             tmp = gettime() - tmp;
             ftime += tmp;
 
+#if 0
             tmp = gettime();
             char *q = calloc(size, 1);
             tmp = gettime() - tmp;
@@ -107,6 +118,7 @@ handle_calloc_test (char * buf, void * priv)
             free(r);
             tmp = gettime() - tmp;
             ftime += tmp;
+#endif
 
             counter++;
         }
