@@ -141,6 +141,132 @@ static uint64_t current_usage = 0;
 #define PREFETCH_UNLOCK() spin_unlock_irq_restore(&prefetch_lock, _prefetch_lock_flags);
 
 #endif
+
+// zjp Get the original block hash logic back for performance of calculating order
+// for large objects  in user apps
+// currently just paste all these redundant logic
+
+//#define BLOCK_HASH 1
+#ifdef BLOCK_HASH
+
+#define BLOCK_HASH_MIN_ORDER 17 // for objects larger than 128K
+struct kmem_block_hdr {
+    void *   addr;   /* address of block */
+    uint64_t order;  /* order of the block allocated from buddy system */
+    /* order>=MIN_ORDER => in use, safe to examine */
+    /* order==0 => unallocated header */
+    /* order==1 => allocation in progress, unsafe */
+    //struct buddy_mempool * zone; /* zone to which this block belongs */
+    //uint64_t flags;  /* flags for this allocated block */
+} __packed __attribute((aligned(8)));
+
+// The factor by which to reduce the hash table size
+// next_prime(total_mem >> 5 / BLOAT) is the maximum number of
+// blocks we can allocate with malloc
+#define BLOCK_HASH_MEM  (1UL<<20) // use 1MB, so 1MB / 16B = 64K entries 
+
+static struct kmem_block_hdr *block_hash_entries=0;
+static uint64_t               block_hash_num_entries=0;
+
+static int block_hash_init()
+{
+    //uint64_t num_entries = next_prime((bytes >> MIN_ORDER) / BLOAT);
+    uint64_t num_entries = BLOCK_HASH_MEM / sizeof(struct kmem_block_hdr); 
+    uint64_t entry_size = sizeof(*block_hash_entries);
+
+    KMEM_DEBUG("block_hash_init with %lu entries each of size %lu bytes (%lu bytes)\n",
+            num_entries, entry_size, num_entries*entry_size);
+
+    block_hash_entries = mm_boot_alloc(num_entries*entry_size);
+    //block_hash_entries = kmem_malloc_internal(num_entries*entry_size);
+
+    if (!block_hash_entries) { 
+        KMEM_ERROR("block_hash_init failed\n");
+        return -1;
+    }
+
+    memset(block_hash_entries,0,num_entries*entry_size);
+
+    block_hash_num_entries = num_entries;
+
+    return 0;
+}
+static inline uint64_t block_hash_hash(const void *ptr)
+{
+    uint64_t n = ((uint64_t) ptr)>>MIN_ORDER;
+
+    n =  n ^ (n>>1) ^ (n<<2) ^ (n>>3) ^ (n<<5) ^ (n>>7)
+        ^ (n<<11) ^ (n>>13) ^ (n<<17) ^ (n>>19) ^ (n<<23) 
+        ^ (n>>29) ^ (n<<31) ^ (n>>37) ^ (n<<41) ^ (n>>43)
+        ^ (n<<47) ^ (n<<53) ^ (n>>59) ^ (n<<61);
+
+    n = n % block_hash_num_entries;
+
+    KMEM_DEBUG("hash of %p returns 0x%lx\n",ptr, n);
+
+    return n;
+}
+
+static inline struct kmem_block_hdr * block_hash_find_entry(const void *ptr)
+{
+    uint64_t i;
+    uint64_t start = block_hash_hash(ptr);
+
+    for (i=start;i<block_hash_num_entries;i++) { 
+        if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
+            KMEM_DEBUG("Find entry scanned %lu entries\n", i-start+1);
+            return &block_hash_entries[i];
+        }
+    }
+    for (i=0;i<start;i++) { 
+        if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
+            KMEM_DEBUG("Find entry scanned %lu entries\n", block_hash_num_entries-start + i + 1);
+            return &block_hash_entries[i];
+        }
+    }
+    return 0;
+}
+
+static inline struct kmem_block_hdr * block_hash_alloc(void *ptr)
+{
+    uint64_t i;
+    uint64_t start = block_hash_hash(ptr);
+
+    for (i=start;i<block_hash_num_entries;i++) { 
+        if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
+            KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
+            return &block_hash_entries[i];
+        }
+    }
+    for (i=0;i<start;i++) { 
+        if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
+            KMEM_DEBUG("Allocation scanned %lu entries\n", block_hash_num_entries-start + i + 1);
+            return &block_hash_entries[i];
+        }
+    }
+    return 0;
+}
+
+static inline void block_hash_free_entry(struct kmem_block_hdr *b)
+{
+    b->addr = 0;
+    //b->zone = 0;
+    //b->flags = 0;
+    __sync_fetch_and_and (&b->order,0);
+}
+
+static inline int block_hash_free(void *ptr)
+{
+    struct kmem_block_hdr *b = block_hash_find_entry(ptr);
+
+    if (!b) { 
+        return -1;
+    } else {
+        block_hash_free_entry(b);
+        return 0;
+    }
+}
+#endif
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
  */
@@ -508,7 +634,12 @@ nk_kmem_init (void)
         KMEM_ERROR("Failed to initialize unit hash\n");
         return -1;
     }
-
+#ifdef BLOCK_HASH
+    if (block_hash_init()) {
+        KMEM_ERROR("Failed to initialize block hash\n");
+        return -1;
+    }
+#endif
     // Create internal zone to handle the 1st region in domain 0, for internal usage 
     internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
     if(internal_zone == NULL) {
@@ -793,6 +924,19 @@ retry:
         //memset(block,0,1ULL << ((struct block*)block)->order);
     }
 
+#ifdef BLOCK_HASH
+    if(((struct block*)block)->order >= BLOCK_HASH_MIN_ORDER) {
+       struct kmem_block_hdr *hdr  = block_hash_alloc(block); 
+       if(!hdr) {
+            printk("Large-obj block hash is full.\n");
+       } else {
+           hdr->addr = block;
+           __asm__ __volatile__ ("" :::"memory");
+           hdr->order = order;
+       }
+    }
+#endif
+
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
         panic("KMEM HAS GONE INSANE AFTER MALLOC\n");
@@ -925,10 +1069,24 @@ kmem_free (void * addr)
     }
     struct buddy_mempool *mp = hdr->mempool;
     /* Return block to the underlying buddy system */
+#ifdef BLOCK_HASH
+    struct kmem_block_hdr *bhdr  = block_hash_find_entry(addr);
+    if(bhdr) { // this is a large-obj recorded in block hash
+        // we don't have to calculate the order
+        order = bhdr->order;
+    }
+    else
+#endif
     order = get_block_order(mp, addr);
+
     kmem_bytes_allocated -= (1UL << order);
     buddy_free(mp, addr, order);
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
+
+#ifdef BLOCK_HASH
+    if(!bhdr)
+        block_hash_free_entry(bhdr);
+#endif
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
