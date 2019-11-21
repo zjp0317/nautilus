@@ -1084,7 +1084,7 @@ kmem_free (void * addr)
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
 
 #ifdef BLOCK_HASH
-    if(!bhdr)
+    if(bhdr)
         block_hash_free_entry(bhdr);
 #endif
 
