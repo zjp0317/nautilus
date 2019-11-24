@@ -211,10 +211,8 @@ sockex_nonblocking_connect(void *arg)
   ticks_b = sys_now();
   LWIP_ASSERT("ret > 0", ret > 0);
   LWIP_ASSERT("FD_ISSET(s, &errset)", FD_ISSET(s, &errset));
-  /* zjp
   LWIP_ASSERT("!FD_ISSET(s, &readset)", !FD_ISSET(s, &readset));
   LWIP_ASSERT("!FD_ISSET(s, &writeset)", !FD_ISSET(s, &writeset));
-    */
 
   /* close */
   ret = lwip_close(s);
@@ -253,7 +251,6 @@ sockex_testrecv(void *arg)
   /* create the socket */
   s = lwip_socket(AF_INET, SOCK_STREAM, 0);
   LWIP_ASSERT("s >= 0", s >= 0);
-
 
   /* connect */
   ret = lwip_connect(s, (struct sockaddr*)&addr, sizeof(addr));
@@ -487,8 +484,8 @@ void socket_examples_init(char* addr)
   printf("target host %s\n", SOCK_TARGET_HOST);
 
   sys_thread_new("sockex_nonblocking_connect", sockex_nonblocking_connect, NULL, 0, 0);
-  sys_thread_new("sockex_testrecv", sockex_testrecv, NULL, 0, 0);
-  sys_thread_new("sockex_testtwoselects", sockex_testtwoselects, NULL, 0, 0);
+  //sys_thread_new("sockex_testrecv", sockex_testrecv, NULL, 0, 0);
+  /*sys_thread_new("sockex_testtwoselects", sockex_testtwoselects, NULL, 0, 0);*/
 }
 
 #endif /* LWIP_SOCKETS */

@@ -393,8 +393,6 @@ err_tcp(void *arg, err_t err)
   old_state = conn->state;
   conn->state = NETCONN_NONE;
 
-    // zjp
-    printk("%s\n", __FUNCTION__);
   if (old_state == NETCONN_CLOSE) {
     /* RST during close: let close return success & dealloc the netconn */
     err = ERR_OK;
@@ -1163,8 +1161,6 @@ lwip_netconn_do_bind(void *m)
 static err_t
 lwip_netconn_do_connected(void *arg, struct tcp_pcb *pcb, err_t err)
 {
-    // zjp
-    printk("lwip_netconn_do_connected here\n");
   struct netconn *conn;
   int was_blocking;
   sys_sem_t* op_completed_sem = NULL;
@@ -1250,8 +1246,6 @@ lwip_netconn_do_connect(void *m)
           if (non_blocking) {
             msg->err = ERR_INPROGRESS;
           } else {
-              // zjp
-              printk("err %d state %d\n", msg->err, msg->conn->state);
             msg->conn->current_msg = msg;
             /* sys_sem_signal() is called from lwip_netconn_do_connected (or err_tcp()),
                when the connection is established! */
@@ -1262,8 +1256,7 @@ lwip_netconn_do_connect(void *m)
             LOCK_TCPIP_CORE();
             LWIP_ASSERT("state!", msg->conn->state != NETCONN_CONNECT);
 #endif /* LWIP_TCPIP_CORE_LOCKING */
-              // zjp
-              printk("==err %d state %d\n", msg->err, msg->conn->state);
+
             return;
           }
         }

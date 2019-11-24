@@ -114,12 +114,12 @@ tcpip_thread(void *arg)
 #if !LWIP_TCPIP_CORE_LOCKING
     case TCPIP_MSG_API:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API message %p\n", (void *)msg));
-      printk(("tcpip_thread: API %p\n", (void *)msg));
+      //printk(("tcpip_thread: API %p\n", (void *)msg));
       msg->msg.api_msg.function(msg->msg.api_msg.msg);
       break;
     case TCPIP_MSG_API_CALL:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API CALL message %p\n", (void *)msg));
-      printk(("tcpip_thread: API CALL %p\n", (void *)msg));
+      //printk(("tcpip_thread: API CALL %p\n", (void *)msg));
       msg->msg.api_call.arg->err = msg->msg.api_call.function(msg->msg.api_call.arg);
       sys_sem_signal(msg->msg.api_call.sem);
       break;
@@ -128,7 +128,7 @@ tcpip_thread(void *arg)
 #if !LWIP_TCPIP_CORE_LOCKING_INPUT
     case TCPIP_MSG_INPKT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: PACKET %p\n", (void *)msg));
-      printk(("tcpip_thread: PACKET %p\n", (void *)msg));
+      //printk(("tcpip_thread: PACKET %p\n", (void *)msg));
       msg->msg.inp.input_fn(msg->msg.inp.p, msg->msg.inp.netif);
       memp_free(MEMP_TCPIP_MSG_INPKT, msg);
       break;
@@ -137,13 +137,13 @@ tcpip_thread(void *arg)
 #if LWIP_TCPIP_TIMEOUT && LWIP_TIMERS
     case TCPIP_MSG_TIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: TIMEOUT %p\n", (void *)msg));
-      printk(("tcpip_thread: TIMEOUT %p\n", (void *)msg));
+      //printk(("tcpip_thread: TIMEOUT %p\n", (void *)msg));
       sys_timeout(msg->msg.tmo.msecs, msg->msg.tmo.h, msg->msg.tmo.arg);
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
     case TCPIP_MSG_UNTIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: UNTIMEOUT %p\n", (void *)msg));
-      printk(("tcpip_thread: UNTIMEOUT %p\n", (void *)msg));
+      //printk(("tcpip_thread: UNTIMEOUT %p\n", (void *)msg));
       sys_untimeout(msg->msg.tmo.h, msg->msg.tmo.arg);
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
@@ -151,14 +151,14 @@ tcpip_thread(void *arg)
 
     case TCPIP_MSG_CALLBACK:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: CALLBACK %p\n", (void *)msg));
-      printk(("tcpip_thread: CALLBACK %p\n", (void *)msg));
+      //printk(("tcpip_thread: CALLBACK %p\n", (void *)msg));
       msg->msg.cb.function(msg->msg.cb.ctx);
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
 
     case TCPIP_MSG_CALLBACK_STATIC:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: CALLBACK_STATIC %p\n", (void *)msg));
-      printk(("tcpip_thread: CALLBACK_STATIC %p\n", (void *)msg));
+      //printk(("tcpip_thread: CALLBACK_STATIC %p\n", (void *)msg));
       msg->msg.cb.function(msg->msg.cb.ctx);
       break;
 

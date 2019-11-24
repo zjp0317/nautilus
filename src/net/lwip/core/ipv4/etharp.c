@@ -685,7 +685,6 @@ etharp_input(struct pbuf *p, struct netif *netif)
     /* ARP packet directed to us? */
     for_us = (u8_t)ip4_addr_cmp(&dipaddr, netif_ip4_addr(netif));
   }
-
   /* ARP message directed to us?
       -> add IP address in ARP cache; assume requester wants to talk to us,
          can result in directly sending the queued packets for this host.

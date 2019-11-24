@@ -108,6 +108,7 @@ netconn_apimsg(tcpip_callback_fn fn, struct api_msg *apimsg)
   if (err == ERR_OK) {
     return apimsg->err;
   }
+  //printk("zjp err %n\n", err);
   return err;
 }
 

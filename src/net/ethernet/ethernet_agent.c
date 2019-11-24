@@ -43,8 +43,8 @@
 #endif
 
 #define ERROR(fmt, args...) ERROR_PRINT("ethernet_agent: " fmt, ##args)
-#define DEBUG(fmt, args...) printk("ethernet_agent: " fmt, ##args)
-//#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_agent: " fmt, ##args)
+//#define DEBUG(fmt, args...) printk("ethernet_agent: " fmt, ##args)
+#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_agent: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("ethernet_agent: " fmt, ##args)
 
 #define AGENT_LIST_LOCK_CONF uint8_t _agent_list_lock_flags
@@ -335,9 +335,19 @@ static int complete_receive(struct nk_net_ethernet_agent_net_dev *d, nk_ethernet
 static void recv_callback(nk_net_dev_status_t status,
 			  void *state)
 {
+
+
     nk_ethernet_packet_t *p = (nk_ethernet_packet_t*)state;
     struct nk_net_ethernet_agent *a = (struct nk_net_ethernet_agent *) p->metadata;
     struct nk_net_ethernet_agent_net_dev *d = 0;
+#if 0 // zjp
+    uint8_t *t = p->raw;
+    if(t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91
+            && t[9] == 0x27 && t[10] == 0x2d && t[11] == 0x32) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("agent recv_callback invoked at %lu %02x%02x %p\n", nk_sched_get_realtime(), t[12], t[13], state);
+    }
+#endif
     AGENT_LOCK_CONF;
     
     if (status!=NK_NET_DEV_STATUS_SUCCESS) {
@@ -382,7 +392,14 @@ static void send_callback(nk_net_dev_status_t status,
     nk_ethernet_packet_t *p = (nk_ethernet_packet_t*) o->packet;
     struct nk_net_ethernet_agent_net_dev *d = (struct nk_net_ethernet_agent_net_dev *) o->dev;
     struct nk_net_ethernet_agent *a = d->agent;
-
+#if 0 // zjp
+    uint8_t *t = p->raw;
+    if(t[9] == 0x06 && t[10] == 0x44 && t[11] == 0x91
+        && t[3] == 0x27 && t[4] == 0x2d && t[5] == 0x32) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("agent send_callback invoked at %lu %02x%02x %p\n", nk_sched_get_realtime(), t[12], t[13], state);
+    }
+#endif
     // The network op is not in any list at this point
 
     if (o->interface==BUFFER) {

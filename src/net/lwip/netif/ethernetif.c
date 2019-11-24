@@ -109,16 +109,21 @@ static void recv_callback(nk_net_dev_status_t status,
 {
     DEBUG("recv_callback\n");
     parse_packet(packet);
-#if 1
-    printk("recv_callback\n");
+#if 0
     // zjp
     uint8_t *t = packet->raw;
-    if(1) { // t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+    if(t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91
+            && t[9] == 0x27 && t[10] == 0x2d && t[11] == 0x32) {
+    //if(t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("recev packet %p %02x%02x at %lu\n", packet,t[12], t[13], nk_sched_get_realtime());
+        /*
         printk("recv %d\n",packet->len);
         int i = 0;
         for(i=0;i<100;i++)
             printk("%02x ", t[i]);
         printk("\n");
+        */
     }
 #endif
     /*
@@ -139,7 +144,17 @@ static void recv_callback(nk_net_dev_status_t status,
     }
     //DEBUG("recv callback ipdev: %p\n", ethernetif->device);	
     ethernetif_input(netif, packet);
+    /*
+    // zjp
+    if(t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91
+            && t[9] == 0x27 && t[10] == 0x2d && t[11] == 0x32) {
+    //if(t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("finish recev packet %p %02x%02x at %lu\n", packet,t[12], t[13], nk_sched_get_realtime());
+    }
+    */
     nk_net_ethernet_release_packet(packet);//realse packet
+
 
 launch_receive:
 
@@ -260,16 +275,25 @@ low_level_output(struct netif *netif, struct pbuf *p)
       len+=q->len;
   }
     pk->len = len;
+#if 0
     // zjp
     uint8_t *t = pk->raw;
-    if(1 ){ // t[3] == 0x06 && t[4] == 0x44 && t[5] == 0x91) {
+    int zjpflag = 0;
+    if(t[9] == 0x06 && t[10] == 0x44 && t[11] == 0x91
+        && t[3] == 0x27 && t[4] == 0x2d && t[5] == 0x32) {
+    //if(t[9] == 0x06 && t[10] == 0x44 && t[11] == 0x91) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("send %p %02x%02x at %lu\n",pk,t[12], t[13],  nk_sched_get_realtime());
+        zjpflag = 1;
+        /*
         printk("send %d\n",pk->len);
         int i = 0;
         for(i=0;i<100;i++)
             printk("%02x ", t[i]);
         printk("\n");
+        */
     }
-
+#endif
     if(nk_net_ethernet_agent_device_send_packet(ethernetif->device, pk, NK_DEV_REQ_NONBLOCKING, 0, 0)){
 	ERROR("Fail to send a packet\n");
     	return ERR_MEM;	
@@ -292,6 +316,13 @@ low_level_output(struct netif *netif, struct pbuf *p)
 
   LINK_STATS_INC(link.xmit);
 
+/*
+    // zjp
+    if(zjpflag ==1 ) {
+        extern uint64_t nk_sched_get_realtime() ;
+        printk("fnish send at %lu\n", nk_sched_get_realtime());
+    }
+    */
   return ERR_OK;
 }
 

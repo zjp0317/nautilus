@@ -35,8 +35,8 @@
 #endif
 
 #define ERROR(fmt, args...) ERROR_PRINT("ethernet_arp: " fmt, ##args)
-#define DEBUG(fmt, args...) printk("ethernet_arp: " fmt, ##args)
-//#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_arp: " fmt, ##args)
+//#define DEBUG(fmt, args...) printk("ethernet_arp: " fmt, ##args)
+#define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_arp: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("ethernet_arp: " fmt, ##args)
 
 #define ARPER_LIST_LOCK_CONF uint8_t _arper_list_lock_flags
