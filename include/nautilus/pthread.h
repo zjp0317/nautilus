@@ -20,7 +20,7 @@
 #define pthread_mutex_destroy(m)    ({ int ret=0; NK_LOCK_DEINIT(m); ret; }) // leak
 
 /* Cond */
-#define PTHREAD_COND_INITIALIZER    0
+#define PTHREAD_COND_INITIALIZER    {0}
 #define pthread_cond_t              nk_condvar_t
 #define pthread_cond_init(c, attr)  nk_condvar_init(c) // attr not used
 #define pthread_cond_wait(c, l)     nk_condvar_wait(c, l)
