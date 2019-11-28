@@ -24,12 +24,21 @@ static struct pisces_cons_ringbuf * console_buffer = NULL;
 static int initialized = 0;
 
 
+#define USE_NK_LOCK 0 //1
+
+#if USE_NK_LOCK
+spinlock_t console_lock;
+#endif
 /**
  * Prints a single character to the pisces console buffer.
  */
 void pisces_cons_putc(unsigned char c)
 {
+#if USE_NK_LOCK
+    int flags = spin_lock_irq_save(&console_lock);
+#else
 	pisces_spin_lock(&(console_buffer->lock));
+#endif
 
 	// If the buffer is full, then we are just going to start overwriting the log
 	console_buffer->buf[console_buffer->write_idx] = c;
@@ -45,7 +54,12 @@ void pisces_cons_putc(unsigned char c)
 		console_buffer->cur_len--;
 	}
 
+#if USE_NK_LOCK
+    spin_unlock_irq_restore(&console_lock,flags);
+#else
 	pisces_spin_unlock(&(console_buffer->lock));
+#endif
+
 }
 
 
