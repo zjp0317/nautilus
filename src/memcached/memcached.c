@@ -177,7 +177,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     header->response.opaque = c->opaque;
     header->response.cas = htonll(c->cas);
 
-    if (settings.verbose > 1) {
+    if (settings.verbose > 2) {
         int ii;
         fprintf(stderr, ">%d Writing bin response:", c->sfd);
         for (ii = 0; ii < sizeof(header->bytes); ++ii) {
@@ -923,7 +923,7 @@ handle_memcached(char * buf, void * priv) {
 int main() {
 #endif
     
-    settings.verbose = 4;
+    settings.verbose = 2;
     settings.maxconns = 1024;
 
     settings.port = 11211;
