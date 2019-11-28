@@ -14,7 +14,7 @@
 #include <nautilus/printk.h>
 #include <nautilus/naut_types.h>
 #include <nautilus/naut_string.h>
-#include <pthread.h>
+#include <nautilus/pthread.h>
 #include <nautilus/shell.h>
 //#include "xmalloc-config.h"
 //#include "xmalloc.h"
