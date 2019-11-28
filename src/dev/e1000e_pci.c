@@ -93,9 +93,9 @@
 // The number of descriptors is always a multiple of eight.
 // both tx_dsc_count and rx_dsc_count should be multiple of 16.
 
-#define TX_DSC_COUNT          128     
+#define TX_DSC_COUNT          256 // zjp 128     
 #define TX_BLOCKSIZE          256      // bytes available per DMA block
-#define RX_DSC_COUNT          128      // equal to DMA block count
+#define RX_DSC_COUNT          256 // zjp 128      // equal to DMA block count
 #define RX_BLOCKSIZE          256      // bytes available per DMA block
 #define RESTART_DELAY         5        // usec = 5 us 
 #define RX_PACKET_BUFFER_SIZE 2048     // the size of the packet buffer
@@ -883,7 +883,8 @@ static int e1000e_unmap_callback(struct e1000e_map_ring* map,
 
   if (map->head_pos == map->tail_pos) {
     // if there is an empty mapping ring buffer, do not unmap the callback
-    ERROR("Try to unmap an empty queue\n");
+    //ERROR("Try to unmap an empty queue map %p\n", map);
+    DEBUG("Try to unmap an empty queue map %p\n", map);
     return -1;
   }
 
@@ -1044,22 +1045,25 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
 #if 1 // read multiple pkgs upon each interrupt     
   if (mask_int & (E1000E_ICR_TXDW | E1000E_ICR_TXQ0)) {
     which_op = op_rx;
-    uint64_t cur_head = state->tx_map->head_pos; 
-    uint64_t cur_tail = state->tx_map->tail_pos; 
 
-    e1000e_unmap_callback(state->tx_map,
-            (uint64_t **)&callback,
-            (void **)&context);
-    if (TXD_STATUS(TXD_PREV_HEAD).ec || TXD_STATUS(TXD_PREV_HEAD).lc) {
-        ERROR("irq_handler fn: transmit errors\n");
-        status = NK_NET_DEV_STATUS_ERROR;
-    }
+    while (TXD_STATUS(TXD_PREV_HEAD).dd & 1)  // keep checking DD (hardware is done with i)
+    {
+        int ret = 
+        e1000e_unmap_callback(state->tx_map,
+                (uint64_t **)&callback,
+                (void **)&context);
+        if(ret == -1) break;
 
-    TXD_PREV_HEAD = TXD_INC(1, TXD_PREV_HEAD);
+        if (TXD_STATUS(TXD_PREV_HEAD).ec || TXD_STATUS(TXD_PREV_HEAD).lc) {
+            ERROR("irq_handler fn: transmit errors\n");
+            status = NK_NET_DEV_STATUS_ERROR;
+        }
+        TXD_PREV_HEAD = TXD_INC(1, TXD_PREV_HEAD);
 
-    if (callback) {
-        DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
-        callback(status, context);
+        if (callback) {
+            DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
+            callback(status, context);
+        }
     }
   }
   if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0)) {
@@ -1076,7 +1080,6 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
             ERROR("irq_handler fn: receive an error packet\n");
             status = NK_NET_DEV_STATUS_ERROR;
         }
-
         RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
 
         if (callback) {

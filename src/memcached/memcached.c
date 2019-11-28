@@ -729,13 +729,14 @@ static int process_bin_get(conn *c) {
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d GET ", c->sfd); 
 #ifdef __Nautilus__
-        for(int ii = 0; ii < nkey; ii++)
-            fputc(key[ii], stderr);
+        for (int ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, "\n");
 #else
         if (fwrite(key, 1, nkey, stderr)) {}
-#endif
         fputc('\n', stderr);
-
+#endif
     }
 
     it = item_get(key, nkey, c, DO_UPDATE);
@@ -826,9 +827,20 @@ static int process_cmd_binary(conn *c) {
             return -1;
         }
 
+        c->msgcurr = 0;
+        c->msgused = 0;
+        c->iovused = 0;
+        // zjp this add_msghdr() seems redundant
+        if (add_msghdr(c) != 0) {
+            fprintf(stderr, "SERVER_ERROR Out of memory allocating headers\n");
+            return -1;
+        }
+
         c->cmd = c->binary_header.request.opcode;
         c->keylen = c->binary_header.request.keylen;
         c->opaque = c->binary_header.request.opaque;
+        /* clear the returned cas value */
+        c->cas = 0;
 
         switch(c->cmd) {
             case PROTOCOL_BINARY_CMD_SETQ:
@@ -929,7 +941,7 @@ handle_memcached(char * buf, void * priv) {
 int main() {
 #endif
     
-    settings.verbose = 1;//2;
+    settings.verbose = 2;//2;
     settings.maxconns = 1024;
 
     settings.port = 11211;
