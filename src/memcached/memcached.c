@@ -728,8 +728,14 @@ static int process_bin_get(conn *c) {
 
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d GET ", c->sfd); 
+#ifdef __Nautilus__
+        for(int ii = 0; ii < nkey; ii++)
+            fputc(key[ii], stderr);
+#else
         if (fwrite(key, 1, nkey, stderr)) {}
+#endif
         fputc('\n', stderr);
+
     }
 
     it = item_get(key, nkey, c, DO_UPDATE);
@@ -808,8 +814,8 @@ static int process_cmd_binary(conn *c) {
         //fprintf(stderr, "keylen %d bodylen %d\n", c->binary_header.request.keylen, c->binary_header.request.bodylen);
 
         if(c->rbytes < c->binary_header.request.bodylen + sizeof(c->binary_header)) {
-            fprintf(stderr, "rbytes %d\n current cmd body %dB header %luB\n",
-                c->rbytes, c->binary_header.request.bodylen, sizeof(c->binary_header));
+            //fprintf(stderr, "rbytes %d current cmd body %dB header %luB\n",
+                //c->rbytes, c->binary_header.request.bodylen, sizeof(c->binary_header));
             // it may not be an error, wait for future data
             return 0;
             //return -1;
@@ -923,7 +929,7 @@ handle_memcached(char * buf, void * priv) {
 int main() {
 #endif
     
-    settings.verbose = 2;
+    settings.verbose = 1;//2;
     settings.maxconns = 1024;
 
     settings.port = 11211;
