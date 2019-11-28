@@ -1,8 +1,11 @@
 #ifndef LWIPOPTS_H
 #define LWIPOPTS_H
 
+// zjp
+#define SO_REUSE 1
+
 // We don't need v6
-#define LWIP_IPV6 0
+#define LWIP_IPV6 0 // zjp 0
 
 // We use nautilus system, so have threads to run in OS mode
 #define NO_SYS 0

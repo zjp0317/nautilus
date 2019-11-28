@@ -24,8 +24,8 @@ static bool stop_main_loop = false;
 
 conn **conns;
 
-#define MEMCACHED_HOST "127.0.0.1"
-//#define MEMCACHED_HOST "172.16.67.140" 
+//#define MEMCACHED_HOST "127.0.0.1"
+#define MEMCACHED_HOST "172.16.67.146" 
 
 #define CONN_RUNNING 0
 #define CONN_CLOSING 1
@@ -990,7 +990,7 @@ int main() {
     int acc_sock;
     if ((acc_sock = server_socket(settings.port)) == -1 ) {
         printf("failed to listen on TCP port %d\n", settings.port);
-        return -1;
+        return 0;
     }
 
     /* Initialize the uriencode lookup table. */
