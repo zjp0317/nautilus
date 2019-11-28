@@ -518,7 +518,16 @@ shell_add_cmd_to_hist (struct shell_cmd_state * state, char * buf)
     return shell_rtree_insert(state->hist_root, hist, cmd);
 }
 
-
+#ifdef NAUT_CONFIG_PISCES
+static void
+pisces_task_thread (void * in, void ** out)
+{
+    // this is a test routine just for memcached server
+    struct shell_cmd *cmd = (struct shell_cmd*)in;
+    cmd->impl->handler(NULL, cmd->priv_data);
+    return;
+}
+#endif
 static int
 shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
 {
@@ -542,7 +551,19 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
     cmd = shell_rtree_lookup(state->root, cmd_buf);
 
     if (cmd && cmd->impl && cmd->impl->handler) {
+#ifdef NAUT_CONFIG_PISCES
+        if(0 == strcmp(cmd_buf, "memcached")) {
+            // specific for memcached
+            nk_thread_id_t tid;
+            if((ret = nk_thread_start(pisces_task_thread, (void*)cmd, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
+                printk("Failed to launch a task thread for memcached server\n");
+            }
+        } else {
+            ret = cmd->impl->handler(buf, cmd->priv_data);
+        }
+#else
         ret = cmd->impl->handler(buf, cmd->priv_data);
+#endif
     }
             
     if (ret < 0) {
@@ -691,6 +712,8 @@ static int check_pisces_buf_cond(void *state) {
     //return 0;
     return pisces_cond;
 }
+
+
 #endif 
 
 static void 
