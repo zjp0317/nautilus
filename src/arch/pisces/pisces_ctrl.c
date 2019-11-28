@@ -139,7 +139,7 @@ cmd_handler(u8    * data,
                 break;
             }
             //printk("Successfully added and booted cpu %d phys_cpu_id %lu apic_id %lu\n", cpu,cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
-            apic_ipi(nk_get_nautilus_info()->sys.cpus[0]->apic, nk_get_nautilus_info()->sys.cpus[cpu]->apic->id, 13);
+            //apic_ipi(nk_get_nautilus_info()->sys.cpus[0]->apic, nk_get_nautilus_info()->sys.cpus[cpu]->apic->id, 13);
             break;
 #endif
         }
