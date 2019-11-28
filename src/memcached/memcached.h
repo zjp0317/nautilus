@@ -33,8 +33,8 @@ typedef long unsigned int caddr_t;
 
 #define calloc(n,s) ({ void *_p=mallocz(n*s); _p; })
 
-#define printf(fmt, args...) nk_vc_printf(fmt, ##args);
-#define fprintf(foo,fmt, args...) nk_vc_printf(fmt, ##args);
+#define printf(fmt, args...) printk(fmt, ##args);
+#define fprintf(foo,fmt, args...) printk(fmt, ##args);
 
 #else
 #include <sys/types.h>
