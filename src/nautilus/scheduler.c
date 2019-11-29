@@ -4019,6 +4019,11 @@ static int shared_init(struct cpu *my_cpu, struct nk_sched_config *cfg)
 
     main->stack_size = IDLE_THREAD_STACK_SIZE;
 
+#ifdef NAUT_CONFIG_PISCES
+    if(my_cpu->id == nk_get_nautilus_info()->sys.num_cpus)
+        nk_get_nautilus_info()->sys.num_cpus++;
+#endif
+
     if (_nk_thread_init(main, my_stack, 1, my_cpu->id, my_cpu->id, NULL)) {
 	ERROR("Failed to init thread\n");
 	goto fail_free;

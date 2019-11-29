@@ -795,7 +795,7 @@ add_cpu (uint64_t apic_id, int* cpu) {
     // !!!
     new_cpu->domain = sys->cpus[0]->domain;
 
-    *cpu = sys->num_cpus++;
+    *cpu = sys->num_cpus; // do ++; until it's brought up
     // TODO, stop_barrier and/or other places that reply on num cpu
 
 

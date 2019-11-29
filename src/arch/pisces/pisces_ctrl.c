@@ -74,10 +74,8 @@ cmd_handler(u8    * data,
             }
 #if 1 // test codes to verify the buddy states 
             zone_mem_show(numa_info->domains[0]->zone);
-            // test,  consume 64M from initial pool
             char* ptr_prev_1 = kmem_malloc( 64*1024*1024);
             char* ptr_prev_2 = kmem_malloc( 32*1024*1024);
-            // test,  allocate 32M 64M 32M from new pool 
             char* ptr_1 = kmem_malloc( 32*1024*1024);
             char* ptr_2 = kmem_malloc( 64*1024*1024);
             char* ptr_3 = kmem_malloc( 32*1024*1024);
@@ -85,25 +83,23 @@ cmd_handler(u8    * data,
 
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                printk("expected: Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             kmem_free(ptr_1);
-            printk("freed 32MB from new pool\n");
+            printk("freed 32MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_2);
-            printk("freed 64MB from new pool\n");
+            printk("freed 64MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_3);
-            printk("freed the other 32MB from new pool\n");
+            printk("freed 32MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_prev_2);
-            printk("freed 32MB from initial pool\n");
-            zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_prev_1);
-            printk("freed 64MB from initial pool\n");
+            printk("freed 64MB pool\n");
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                printk("expected: Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             zone_mem_show(numa_info->domains[0]->zone);
 
@@ -138,6 +134,7 @@ cmd_handler(u8    * data,
                 printk("Failed to bringup cpu %d apic_id %lu\n", cpu, cpu_cmd->apic_id); 
                 break;
             }
+
             //printk("Successfully added and booted cpu %d phys_cpu_id %lu apic_id %lu\n", cpu,cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
             //apic_ipi(nk_get_nautilus_info()->sys.cpus[0]->apic, nk_get_nautilus_info()->sys.cpus[cpu]->apic->id, 13);
             break;
