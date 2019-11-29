@@ -205,6 +205,7 @@ static void *worker_thread(void *arg) {
             pthread_cond_wait(&me->cond, &me->lock);
         }
         pthread_mutex_unlock(&me->lock);
+        fprintf(stderr, "worker %p wakes up for sfd %d\n", me, item->sfd);
 /*
         CQ_ITEM *item = cq_pop(me->new_conn_queue);
         if(item == NULL) { 
@@ -245,6 +246,7 @@ void dispatch_conn_new(int sfd, int read_buffer_size) {
     item->sfd = sfd;
     item->read_buffer_size = read_buffer_size;
 
+    fprintf(stderr, "wake up worker %p for sfd %d\n", target_worker, item->sfd);
     pthread_mutex_lock(&target_worker->lock);
 
     cq_push(target_worker->new_conn_queue, item);
