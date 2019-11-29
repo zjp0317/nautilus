@@ -558,6 +558,7 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
             if((ret = nk_thread_start(pisces_task_thread, (void*)cmd, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
                 printk("Failed to launch a task thread for memcached server\n");
             }
+            nk_thread_name(tid, "memcached");
         } else {
             ret = cmd->impl->handler(buf, cmd->priv_data);
         }
