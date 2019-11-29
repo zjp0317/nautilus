@@ -93,7 +93,7 @@
 // The number of descriptors is always a multiple of eight.
 // both tx_dsc_count and rx_dsc_count should be multiple of 16.
 
-#define TX_DSC_COUNT          256 // zjp 128     
+#define TX_DSC_COUNT          256 // zjp 256=0x1000/16B 128     
 #define TX_BLOCKSIZE          256      // bytes available per DMA block
 #define RX_DSC_COUNT          256 // zjp 128      // equal to DMA block count
 #define RX_BLOCKSIZE          256      // bytes available per DMA block
@@ -248,7 +248,7 @@
 //// granularity thresholds unit 0b cache line, 1b descriptors
 #define E1000E_TXDCTL_GRAN           (1<<24)
 // CLEANUP
-#define E1000E_TXDCTL_WTHRESH        0 //(1<<16)
+#define E1000E_TXDCTL_WTHRESH        0 // (1<<16) // zjp 0 
 
 // IPG = inter packet gap
 #define E1000E_TIPG_IPGT             0x08          // IPG transmit time
@@ -883,8 +883,8 @@ static int e1000e_unmap_callback(struct e1000e_map_ring* map,
 
   if (map->head_pos == map->tail_pos) {
     // if there is an empty mapping ring buffer, do not unmap the callback
-    //ERROR("Try to unmap an empty queue map %p\n", map);
-    DEBUG("Try to unmap an empty queue map %p\n", map);
+    ERROR("Try to unmap an empty queue map %p\n", map);
+    //DEBUG("Try to unmap an empty queue map %p\n", map);
     return -1;
   }
 
@@ -1048,16 +1048,17 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
 
     while (TXD_STATUS(TXD_PREV_HEAD).dd & 1)  // keep checking DD (hardware is done with i)
     {
-        int ret = 
         e1000e_unmap_callback(state->tx_map,
                 (uint64_t **)&callback,
                 (void **)&context);
-        if(ret == -1) break;
+        //if(ret == -1) break;
 
         if (TXD_STATUS(TXD_PREV_HEAD).ec || TXD_STATUS(TXD_PREV_HEAD).lc) {
             ERROR("irq_handler fn: transmit errors\n");
             status = NK_NET_DEV_STATUS_ERROR;
         }
+
+        TXD_STATUS(TXD_PREV_HEAD).dd = 0;
         TXD_PREV_HEAD = TXD_INC(1, TXD_PREV_HEAD);
 
         if (callback) {
@@ -1080,6 +1081,8 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
             ERROR("irq_handler fn: receive an error packet\n");
             status = NK_NET_DEV_STATUS_ERROR;
         }
+
+        RXD_STATUS(RXD_PREV_HEAD).dd = 0;
         RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
 
         if (callback) {
@@ -1087,6 +1090,7 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
             callback(status, context);
         }
     }
+
   }
 
 #else

@@ -16,6 +16,21 @@
 #include "memcached.h"
 #endif
 
+#define ZJP_TIME 1
+#if ZJP_TIME
+uint64_t zjpflag = 0;
+static double readcost = 0;
+static double writecost= 0;
+static double gettime() {
+#if 0
+    struct timeval t;
+    gettimeofday(&t,NULL);
+    return (double)t.tv_sec+t.tv_usec*1e-6;
+#else
+    return nk_sched_get_realtime_secs();
+#endif
+}
+#endif
 
 
 struct settings settings;
@@ -50,11 +65,28 @@ enum transmit_result {
 
 ssize_t memcached_tcp_read(conn *c, void *buf, size_t count) { 
     assert (c != NULL);
+#if ZJP_TIME
+    double starttime = gettime();
+    ssize_t ret = read(c->sfd, buf, count);
+    readcost +=  gettime() - starttime;
+    //fprintf(stderr, "read cost %lf\n", gettime() - starttime); 
+    return ret;
+#else
     return read(c->sfd, buf, count);
+#endif
 }
 ssize_t memcached_tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
     assert (c != NULL);
+
+#if ZJP_TIME
+    double starttime = gettime();
+    ssize_t ret = sendmsg(c->sfd, msg, flags);
+    writecost +=  gettime() - starttime;
+    //fprintf(stderr, "send cost %lf\n", gettime() - starttime); 
+    return ret;
+#else
     return sendmsg(c->sfd, msg, flags);
+#endif
 }   
 ssize_t memcached_tcp_write(conn *c, void *buf, size_t count) {
     assert (c != NULL);
@@ -863,6 +895,10 @@ static int process_cmd_binary(conn *c) {
                 ret = process_bin_set(c);
                 break;
             case PROTOCOL_BINARY_CMD_GET:
+#if ZJP_TIME
+                if(zjpflag++ == 1)
+                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf \n", gettime(), readcost, writecost);
+#endif
                 ret = process_bin_get(c);
                 break;
             default:
@@ -929,6 +965,9 @@ void drive_machine(conn *c) {
         } else { // done with this conn
             printf("Close connection %p socket %d\n", c, c->sfd);
             conn_close(c);
+#if ZJP_TIME
+            fprintf(stderr, "Close at %lf readcost %lf writecost %lf \n", gettime(), readcost, writecost);
+#endif
             break;
         }
     } // conn loop
@@ -941,7 +980,7 @@ handle_memcached(char * buf, void * priv) {
 int main() {
 #endif
     
-    settings.verbose = 2;//2;
+    settings.verbose = 1;//2;
     settings.maxconns = 1024;
 
     settings.port = 11211;
@@ -1022,7 +1061,14 @@ int main() {
         printf("Waiting for clients\n");
         conn_sock = accept(acc_sock, (struct sockaddr*)&client_addr, &client_addrlen);
         if(conn_sock >= 0) {
+#if ZJP_TIME
+            zjpflag = 1;
+            readcost = 0;
+            writecost= 0;
+            fprintf(stderr, "new conn arrives at %lf\n", gettime()); 
+#else
             printf("new conn %d arrives\n", conn_sock); 
+#endif
             dispatch_conn_new(conn_sock, DATA_BUFFER_SIZE);
         }
     }
