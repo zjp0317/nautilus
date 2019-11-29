@@ -49,6 +49,7 @@
 #define DEBUG(fmt, args...) DEBUG_PRINT("ethernet_packet: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("ethernet_packet: " fmt, ##args)
 
+
 static spinlock_t       lock;
 static struct list_head free_list;
 // the invariant here is that high=2*low
@@ -89,17 +90,27 @@ nk_ethernet_packet_t *nk_net_ethernet_alloc_packet(int cpu)
     struct list_head *cur=0;
     nk_ethernet_packet_t *p=0;
     int first=1;
+#ifdef NAUT_CONFIG_PISCES
+    uint8_t flags;
+#endif
 
  retry:
+#ifdef NAUT_CONFIG_PISCES
+    flags = spin_lock_irq_save(&lock);
+#else
     spin_lock(&lock);
+#endif
     if (!list_empty(&free_list)) {
 	cur = free_list.next;
 	list_del_init(cur);
 	free_list_len--;
     }
     try_grow_if_needed();
+#ifdef NAUT_CONFIG_PISCES
+    spin_unlock_irq_restore(&lock, flags);
+#else
     spin_unlock(&lock);
-    
+#endif    
     if (!cur) {
 	if (first) {
 	    first=0;
@@ -132,26 +143,34 @@ void nk_net_ethernet_acquire_packet(nk_ethernet_packet_t *p)
 void nk_net_ethernet_release_packet(nk_ethernet_packet_t *p)
 {
     if (__sync_fetch_and_sub(&p->refcount,1)==1) {
-	// the packet is now ready to be freed
-	spin_lock(&lock);
-	if (free_list_len<free_list_high) {
-	    // add it to the front of the list since it's probably all in
-	    // cache now, and so the next allocator will be able to take advantage
-	    list_add(&p->node,&free_list);
-	    free_list_len++;
-	    spin_unlock(&lock);
-	} else {
-	    spin_unlock(&lock);
-	    // just free it - we already have too many packets
-	    free(p);
-	    // we would possibly shrink the pool here...
-	}
+        // the packet is now ready to be freed
+#ifdef NAUT_CONFIG_PISCES
+        uint8_t flags = spin_lock_irq_save(&lock);
+#else
+        spin_lock(&lock);
+#endif
+        if (free_list_len<free_list_high) {
+            // add it to the front of the list since it's probably all in
+            // cache now, and so the next allocator will be able to take advantage
+            list_add(&p->node,&free_list);
+            free_list_len++;
+#ifdef NAUT_CONFIG_PISCES
+            spin_unlock_irq_restore(&lock, flags);
+#else
+            spin_unlock(&lock);
+#endif
+        } else {
+#ifdef NAUT_CONFIG_PISCES
+            spin_unlock_irq_restore(&lock, flags);
+#else
+            spin_unlock(&lock);
+#endif
+            // just free it - we already have too many packets
+            free(p);
+            // we would possibly shrink the pool here...
+        }
     }
 }
-	
-
-
-
 
 int  nk_net_ethernet_packet_init()
 {

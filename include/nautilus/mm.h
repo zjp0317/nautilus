@@ -90,6 +90,8 @@ int nk_kmem_init(void);
 struct mem_region;
 
 #ifdef NAUT_CONFIG_PISCES
+int nk_kmem_init_all(void);
+
 #define PISCES_MEM_UNIT     (1UL<<27) // 128MB
 #define INTERNAL_MEM_SIZE   (2 * PISCES_MEM_UNIT) // 256MB reserved for internal usage
 #define REGULAR_MEM_SIZE    (PISCES_MEM_UNIT) // 128MB for regular usage: runtime, apps, etc.

@@ -278,7 +278,7 @@ handle_malloc_test (char * buf, void * priv)
         run_time = 5.0;
         object_size = DEFAULT_OBJECT_SIZE;
         printf("Use default setting: workers %d runtime %lf object size %d\n", num_workers, run_time,object_size);
-        return 0;
+        //return 0;
     } else {
         printf("Use setting: workers %d runtime %lf object size %d\n", num_workers, run_time,object_size);
     }

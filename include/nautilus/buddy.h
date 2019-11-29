@@ -32,6 +32,8 @@ struct buddy_memzone {
 
     uint_t      node_id;        /* The NUMA node this zone allocates */
 
+    uint_t      is_mirror;       /* this zone is a mirror on other zone */
+
     ulong_t     num_pools;
 
     struct list_head * avail;   /* one free list for each block size,
@@ -45,6 +47,32 @@ struct buddy_memzone {
 
     struct list_head mempools;  /* since we have hash for pools, we don't need rbtree */
 };
+
+
+/*
+ * Large object map: support quick retrieval of the order info of large objects.
+ *
+ * -- Treat objects larger than (1 << LARGE_OBJ_ORDER) Bytes as large objects 
+ * -- For buddy pools that initially is fully free:
+ *      All large objects can only start at a certain offset.
+ *      E.g., assume LARGE_OBJ_ORDER = 17, an 128MB pool with starting address 0x0 
+ *      can only provide large objects at offset 0B, 128KB, 256KB, 384KB,...,etc.
+ *
+ *      So, the offset can be used as index to retrieve order value from map (an array). 
+ *
+ * -- For buddy pools that 'overlap with' boot allocator:
+ *      A large object may start at a 'weird' offset due to boot alloc/free,
+ *      in this case, this map is a partial map that only covers some objects.
+ *      The worst (though unlikely) case is that this map doesn't catch any large objects
+ *      at all. But it won't hurt performance, though waste a small portion of memory.
+ */
+
+#define LARGE_OBJ_MAP   1
+
+#ifdef LARGE_OBJ_MAP 
+#define LARGE_OBJ_ORDER 17 // consider 128KB as large object
+#define LARGE_OBJ_MASK  ((1UL<<LARGE_OBJ_ORDER) - 1) 
+#endif
 
 struct buddy_mempool {
     ulong_t    base_addr;       /* base address of the memory pool */
@@ -68,6 +96,12 @@ struct buddy_mempool {
                                  *    1 = block is VISITED
                                  */
 
+#ifdef LARGE_OBJ_MAP 
+    uint8_t     *large_obj_map; /* each entry stores the order value of a large object
+                                 * 0 means not a large object
+                                 */
+#endif
+
     struct buddy_memzone * zone;
     
     struct list_head link;
@@ -85,10 +119,12 @@ struct block {
 };
 
 struct buddy_memzone * buddy_init (uint_t node_id, ulong_t max_order, ulong_t min_order);
+struct buddy_memzone * buddy_create (uint_t node_id, ulong_t max_order, ulong_t min_order);
 
 struct buddy_mempool * buddy_init_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
 
 void insert_mempool (struct buddy_memzone * zone, struct buddy_mempool * pool);
+void buddy_cleanup_pool(struct buddy_mempool *mp);
 struct buddy_mempool * buddy_create_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
 int buddy_remove_pool (struct buddy_mempool * mp);
 

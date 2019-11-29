@@ -174,6 +174,14 @@ clear_order_bit(struct buddy_mempool *mp, ulong_t block_id, ulong_t order)
  */
 inline uint64_t 
 get_block_order(struct buddy_mempool *mp, void *block) {
+#ifdef LARGE_OBJ_MAP
+    if( ! ((ulong_t)block & LARGE_OBJ_MASK) ) { 
+        // only if the target address is on certain offset
+        uint8_t order = mp->large_obj_map[((ulong_t)block - mp->base_addr) >> LARGE_OBJ_ORDER];
+        if(order != 0)
+            return (uint64_t)order;
+    }
+#endif
     ulong_t block_id = block_to_id(mp, block);
     int start = block_id;
     while( ! test_bit(block_id++, mp->order_bits));
@@ -255,6 +263,60 @@ buddy_init (uint_t  node_id,
     return zone;
 }
 
+struct buddy_memzone *
+buddy_create (uint_t  node_id,
+            ulong_t max_order,
+            ulong_t min_order)
+{
+    struct buddy_memzone *zone = NULL;
+    ulong_t i;
+
+    BUDDY_DEBUG("Initializing Memory zone with up to %lu bit blocks on Node %d\n", max_order, node_id);
+
+    /* Smallest block size must be big enough to hold a block structure */
+    if ((1UL << min_order) < sizeof(struct block)) {
+        min_order = ilog2( roundup_pow_of_two(sizeof(struct block)) );
+        BUDDY_DEBUG("min order fixed to %lu\n",min_order);
+    }
+
+    /* The minimum block order must be smaller than the max order */
+    if (min_order > max_order) {
+        BUDDY_DEBUG("Skipping buddy init as required pool order is too small min_order=%lu pool_order=%lu\n", min_order, max_order);
+        return NULL;
+    }
+
+    zone = kmem_malloc_internal(sizeof(struct buddy_memzone));
+    if (!zone) {
+        ERROR_PRINT("Could not allocate memzone\n");
+        return NULL;
+    }
+    memset(zone, 0, sizeof(struct buddy_memzone));
+
+    zone->max_order = max_order;
+    zone->min_order = min_order;
+    zone->node_id   = node_id;
+
+    /* Allocate a list for every order up to the maximum allowed order */
+    zone->avail = kmem_malloc_internal((max_order + 1) * sizeof(struct list_head));
+
+    if (!zone->avail) { 
+        ERROR_PRINT("Cannot allocate list heads\n");
+        return NULL;
+    }
+
+    /* Initially all lists are empty */
+    for (i = 0; i <= max_order; i++) {
+        INIT_LIST_HEAD(&zone->avail[i]);
+    }
+
+    spinlock_init(&(zone->lock));
+    INIT_LIST_HEAD(&zone->mempools);
+
+    BUDDY_DEBUG("Created memory zone %p\n", zone);
+
+    return zone;
+}
+
 /* zjp
  * This function should run with holding zone->lock
  */
@@ -301,13 +363,22 @@ buddy_init_pool(struct buddy_memzone * zone,
     mp->num_free_blocks = 0;
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
-    mp->num_blocks      = (1UL << pool_order) / (1UL << zone->min_order);
+    mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
     uint64_t bytes_for_bitmap = BITS_TO_LONGS(mp->num_blocks) * sizeof(ulong_t);
     mp->tag_bits   = mm_boot_alloc(bytes_for_bitmap);
     /* Allocate for order bits and flag bits */
     mp->order_bits = mm_boot_alloc(bytes_for_bitmap);
     mp->flag_bits   = mm_boot_alloc(bytes_for_bitmap);
 
+    if(!mp->tag_bits || !mp->order_bits || !mp->flag_bits)
+        return NULL; // don't clean up, it will panic anyway
+
+#ifdef LARGE_OBJ_MAP 
+    mp->large_obj_map = mm_boot_alloc((1UL << (pool_order - LARGE_OBJ_ORDER)));
+    if(!mp->large_obj_map)
+        return NULL;
+    memset(mp->large_obj_map, 0, (1UL << (pool_order - LARGE_OBJ_ORDER)));
+#endif
     /* Initially mark all minimum-sized blocks as allocated */
     bitmap_zero(mp->tag_bits, mp->num_blocks);
     /* initialize order bits */ 
@@ -329,6 +400,23 @@ buddy_init_pool(struct buddy_memzone * zone,
     return mp;
 }
 
+void
+buddy_cleanup_pool(struct buddy_mempool *mp)
+{
+    if(mp) {
+        if(mp->tag_bits)
+            kmem_free_internal(mp->tag_bits);
+        if(mp->order_bits)
+            kmem_free_internal(mp->order_bits);
+        if(mp->flag_bits)
+            kmem_free_internal(mp->flag_bits);
+#ifdef LARGE_OBJ_MAP
+        if(mp->large_obj_map)
+            kmem_free_internal(mp->large_obj_map);
+#endif
+        free(mp);
+    }
+}
 /* zjp:
  * This create a pool of a given size for a buddy allocated zone.
  * ONLY used after buddy allocator is initialized. 
@@ -367,19 +455,30 @@ buddy_create_pool(struct buddy_memzone * zone,
     mp->num_free_blocks = 0;
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
-    mp->num_blocks      = (1UL << pool_order) / (1UL << zone->min_order);
+    mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
     uint64_t bytes_for_bitmap = BITS_TO_LONGS(mp->num_blocks) * sizeof(ulong_t);
-    mp->tag_bits   = kmem_malloc_internal(bytes_for_bitmap);
+    mp->tag_bits   = kmem_mallocz_internal(bytes_for_bitmap);
     /* Allocate for order bits and flag bits */
-    mp->order_bits = kmem_malloc_internal(bytes_for_bitmap);
-    mp->flag_bits   = kmem_malloc_internal(bytes_for_bitmap);
+    mp->order_bits = kmem_mallocz_internal(bytes_for_bitmap);
+    mp->flag_bits   = kmem_mallocz_internal(bytes_for_bitmap);
 
+    if(!mp->tag_bits || !mp->order_bits || !mp->flag_bits)
+        goto err;
+
+#ifdef LARGE_OBJ_MAP 
+    mp->large_obj_map = kmem_mallocz_internal((1UL << (pool_order - LARGE_OBJ_ORDER)));
+    if(!mp->large_obj_map)
+        goto err;
+#endif
+
+#if 0 //use mallocz
     /* Initially mark all minimum-sized blocks as allocated */
     bitmap_zero(mp->tag_bits, mp->num_blocks);
     /* initialize order bits */ 
     bitmap_zero(mp->order_bits, mp->num_blocks);
     /* initialize flag bits */
     bitmap_zero(mp->flag_bits, mp->num_blocks);
+#endif
 
 #if 0 // We should alloc unit hash entries first before actually 'adding' the pool
     flags = spin_lock_irq_save(&(zone->lock));
@@ -394,6 +493,10 @@ buddy_create_pool(struct buddy_memzone * zone,
     BUDDY_DEBUG("Added memory pool (addr=%p), order=%lu\n", (void *)base_addr, pool_order);
 
     return mp;
+
+err:
+    buddy_cleanup_pool(mp);
+    return NULL;
 }
 
 /* zjp:
@@ -424,10 +527,7 @@ buddy_remove_pool(struct buddy_mempool * mp)
 
     spin_unlock_irq_restore(&(zone->lock), flags);
 
-    kmem_free(mp->tag_bits);
-    kmem_free(mp->order_bits);
-    kmem_free(mp->flag_bits);
-    kmem_free(mp);
+    buddy_cleanup_pool(mp);
 
     return 0;
 }
@@ -452,7 +552,8 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
     struct block *block;
     struct block *buddy_block;
 
-    ASSERT(zone);
+    if(!zone) return NULL;
+//    ASSERT(zone);
 
     BUDDY_DEBUG("BUDDY ALLOC on zone: %p order: %lu\n", zone, order);
     if (order > zone->max_order) {
@@ -485,6 +586,17 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
 
         ulong_t block_id = block_to_id(mp, block);
         set_order_bit(mp, block_id, order); // set order bit 
+#ifdef LARGE_OBJ_MAP
+        if(order >= LARGE_OBJ_ORDER) {
+            //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
+            if((ulong_t)block & LARGE_OBJ_MASK) {
+                BUDDY_PRINT("Large object %p order %d start at weird offset! Break assumption!\n", block, order);
+            } else {
+                mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = order;
+                }
+        }
+#endif
+
         mark_allocated(mp, block_id);
 
         BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
@@ -504,7 +616,7 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         }
 
         block->order = j;
-        block->mempool = NULL; 
+        block->mempool = NULL;
 
         mp->num_free_blocks -= (1UL << (order - zone->min_order));
 
@@ -563,6 +675,16 @@ buddy_free(
     flags = spin_lock_irq_save(&(zone->lock));
 
     clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
+#ifdef LARGE_OBJ_MAP
+    if(order >= LARGE_OBJ_ORDER) {
+        //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
+        if((ulong_t)block & LARGE_OBJ_MASK) {
+            BUDDY_PRINT("Large object %p order %d start at weird offset! Break assumption!\n", block, order);
+        } else {
+            mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = 0;
+        }
+    }
+#endif
 
     /* Coalesce as much as possible with adjacent free buddy blocks */
     while (order < mp->pool_order) {

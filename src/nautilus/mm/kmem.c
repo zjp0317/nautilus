@@ -129,144 +129,6 @@ static struct buddy_memzone * internal_zone = NULL;
 static uint64_t internal_mem_start = 0;
 static uint64_t internal_mem_end = 0;
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-// TODO may support internal mem later
-static spinlock_t prefetch_lock;
-static uint64_t prefetch_size = 0;
-static uint64_t current_threshold = 0; // roughly mem size * prefetch-threshold
-static uint64_t current_usage = 0;
-
-#define PREFETCH_LOCK_CONF uint8_t _prefetch_lock_flags;
-#define PREFETCH_LOCK() _prefetch_lock_flags = spin_lock_irq_save(&prefetch_lock);
-#define PREFETCH_UNLOCK() spin_unlock_irq_restore(&prefetch_lock, _prefetch_lock_flags);
-
-#endif
-
-// zjp Get the original block hash logic back for performance of calculating order
-// for large objects  in user apps
-// currently just paste all these redundant logic
-
-//#define BLOCK_HASH 1
-#ifdef BLOCK_HASH
-
-#define BLOCK_HASH_MIN_ORDER 17 // for objects larger than 128K
-struct kmem_block_hdr {
-    void *   addr;   /* address of block */
-    uint64_t order;  /* order of the block allocated from buddy system */
-    /* order>=MIN_ORDER => in use, safe to examine */
-    /* order==0 => unallocated header */
-    /* order==1 => allocation in progress, unsafe */
-    //struct buddy_mempool * zone; /* zone to which this block belongs */
-    //uint64_t flags;  /* flags for this allocated block */
-} __packed __attribute((aligned(8)));
-
-// The factor by which to reduce the hash table size
-// next_prime(total_mem >> 5 / BLOAT) is the maximum number of
-// blocks we can allocate with malloc
-#define BLOCK_HASH_MEM  (1UL<<20) // use 1MB, so 1MB / 16B = 64K entries 
-
-static struct kmem_block_hdr *block_hash_entries=0;
-static uint64_t               block_hash_num_entries=0;
-
-static int block_hash_init()
-{
-    //uint64_t num_entries = next_prime((bytes >> MIN_ORDER) / BLOAT);
-    uint64_t num_entries = BLOCK_HASH_MEM / sizeof(struct kmem_block_hdr); 
-    uint64_t entry_size = sizeof(*block_hash_entries);
-
-    KMEM_DEBUG("block_hash_init with %lu entries each of size %lu bytes (%lu bytes)\n",
-            num_entries, entry_size, num_entries*entry_size);
-
-    block_hash_entries = mm_boot_alloc(num_entries*entry_size);
-    //block_hash_entries = kmem_malloc_internal(num_entries*entry_size);
-
-    if (!block_hash_entries) { 
-        KMEM_ERROR("block_hash_init failed\n");
-        return -1;
-    }
-
-    memset(block_hash_entries,0,num_entries*entry_size);
-
-    block_hash_num_entries = num_entries;
-
-    return 0;
-}
-static inline uint64_t block_hash_hash(const void *ptr)
-{
-    uint64_t n = ((uint64_t) ptr)>>MIN_ORDER;
-
-    n =  n ^ (n>>1) ^ (n<<2) ^ (n>>3) ^ (n<<5) ^ (n>>7)
-        ^ (n<<11) ^ (n>>13) ^ (n<<17) ^ (n>>19) ^ (n<<23) 
-        ^ (n>>29) ^ (n<<31) ^ (n>>37) ^ (n<<41) ^ (n>>43)
-        ^ (n<<47) ^ (n<<53) ^ (n>>59) ^ (n<<61);
-
-    n = n % block_hash_num_entries;
-
-    KMEM_DEBUG("hash of %p returns 0x%lx\n",ptr, n);
-
-    return n;
-}
-
-static inline struct kmem_block_hdr * block_hash_find_entry(const void *ptr)
-{
-    uint64_t i;
-    uint64_t start = block_hash_hash(ptr);
-
-    for (i=start;i<block_hash_num_entries;i++) { 
-        if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
-            KMEM_DEBUG("Find entry scanned %lu entries\n", i-start+1);
-            return &block_hash_entries[i];
-        }
-    }
-    for (i=0;i<start;i++) { 
-        if (block_hash_entries[i].order>=MIN_ORDER && block_hash_entries[i].addr == ptr) { 
-            KMEM_DEBUG("Find entry scanned %lu entries\n", block_hash_num_entries-start + i + 1);
-            return &block_hash_entries[i];
-        }
-    }
-    return 0;
-}
-
-static inline struct kmem_block_hdr * block_hash_alloc(void *ptr)
-{
-    uint64_t i;
-    uint64_t start = block_hash_hash(ptr);
-
-    for (i=start;i<block_hash_num_entries;i++) { 
-        if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
-            KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
-            return &block_hash_entries[i];
-        }
-    }
-    for (i=0;i<start;i++) { 
-        if (__sync_bool_compare_and_swap(&block_hash_entries[i].order,0,1)) {
-            KMEM_DEBUG("Allocation scanned %lu entries\n", block_hash_num_entries-start + i + 1);
-            return &block_hash_entries[i];
-        }
-    }
-    return 0;
-}
-
-static inline void block_hash_free_entry(struct kmem_block_hdr *b)
-{
-    b->addr = 0;
-    //b->zone = 0;
-    //b->flags = 0;
-    __sync_fetch_and_and (&b->order,0);
-}
-
-static inline int block_hash_free(void *ptr)
-{
-    struct kmem_block_hdr *b = block_hash_find_entry(ptr);
-
-    if (!b) { 
-        return -1;
-    } else {
-        block_hash_free_entry(b);
-        return 0;
-    }
-}
-#endif
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
  */
@@ -492,25 +354,7 @@ static int kmem_alloc_unit_hash (uint64_t base_addr, uint64_t end_addr, struct b
     return 0;
 }
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-inline void
-kmem_handle_prefetch_response(sint64_t size) {
-    // size could be negative
-    struct sys_info * sys = &(nk_get_nautilus_info()->sys);
-
-    PREFETCH_LOCK_CONF;
-    PREFETCH_LOCK();
-
-    sys->mem.phys_mem_avail_regular += size;
-    current_threshold = (uint64_t)(sys->mem.phys_mem_avail_regular * PREFETCH_THRESHOLD);
-
-    // Mark current prefetch has been done by resetting prefetch size
-    prefetch_size = 0;
-
-    PREFETCH_UNLOCK();
-}
-#endif
-/* zjp:
+/* 
  * Add a new mempool into a zone 
  */
 int
@@ -550,21 +394,14 @@ kmem_add_mempool (struct buddy_memzone * zone,
     /* now it's safe to enable allocation on this mempool */ 
     buddy_free(mp, (void*)base_addr, mp->pool_order);
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    kmem_handle_prefetch_response(size);
-#endif
-
     return 0;
 err:
     free_page_tables(base_addr, size);
-    kmem_free(mp->tag_bits);
-    kmem_free(mp->order_bits);
-    kmem_free(mp->flag_bits);
-    kmem_free(mp);
+    buddy_cleanup_pool(mp);
     return -1;
 }
 
-/* zjp:
+/* 
  * Given the base_addr and size, remove the corresponding mempool 
  */
 int
@@ -577,12 +414,7 @@ kmem_remove_mempool (ulong_t base_addr,
         ERROR_PRINT("Cannot find mempool for base_addr=0x%lx\n", base_addr);
         return -1;
     }
-    /*
-    if(mp == first_mempool) {
-        ERROR_PRINT("Cannot remove mempool for base_addr=0x%lx. It's reserved.\n", base_addr);
-        return -1;
-    }
-    */
+
     /* remove the mempool from the zone's free list and pool list */
     if ( 0 != buddy_remove_pool(mp)) {
         ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
@@ -599,10 +431,6 @@ kmem_remove_mempool (ulong_t base_addr,
         ERROR_PRINT("Failed to clean page tables for mempool %p base_addr=0x%lx\n", mp, base_addr);
         return -1;
     }
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    // TODO, may support adding mempool for internal zone later
-    kmem_handle_prefetch_response(-((sint64_t)size));
-#endif
     return 0;
 }
 
@@ -619,10 +447,6 @@ nk_kmem_init (void)
     unsigned i = 0, j = 0;
     uint64_t total_mem=0;
     uint64_t total_phys_mem=0;
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    sys->mem.phys_mem_avail_regular = sys->mem.phys_mem_avail_internal = 0;
-    spinlock_init(&prefetch_lock);
-#endif
     
     kmem_private_start = boot_mm_get_cur_top();
 
@@ -634,19 +458,8 @@ nk_kmem_init (void)
         KMEM_ERROR("Failed to initialize unit hash\n");
         return -1;
     }
-#ifdef BLOCK_HASH
-    if (block_hash_init()) {
-        KMEM_ERROR("Failed to initialize block hash\n");
-        return -1;
-    }
-#endif
-    // Create internal zone to handle the 1st region in domain 0, for internal usage 
-    internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
-    if(internal_zone == NULL) {
-        panic("Could not initialize memory management for internal region\n"); 
-        return -1;
-    }
 
+#ifndef NAUT_CONFIG_PISCES // no co-kernel case
     for (i = 0; i < numa_info->num_domains; i++) {
         /* create zone for this domain */
         struct buddy_memzone * zone = buddy_init(numa_info->domains[i]->id, MAX_ORDER, MIN_ORDER);
@@ -669,60 +482,22 @@ nk_kmem_init (void)
                 continue;
             }
 
-            // ent->len cound be, e.g, 5 * 128MB. We don't want to expand it to 16 * 128MB.
-            //uint64_t len = roundup_pow_of_two(ent->len);
             ulong_t len = round_up(ent->len, KMEM_UNIT_SIZE);
 
             struct buddy_mempool * mp = NULL;
-            if(i == 0 && j == 0) { // 1st region in domain 0 
-                // TODO: just maintain a single big mempool, use zone if multiple internal pools are needed.
-                internal_mempool = mp = buddy_init_pool(internal_zone, ent->base_addr, ilog2(len)); 
-                internal_mem_start = ent->base_addr;
-                internal_mem_end = ent->base_addr + len;
-                printk("initialize internal mem pool at %p\n", ent->base_addr);
-                /*
-            } else if(i == 0 && j == 1) { // 2nd region in domain 0 
-                first_mempool = mp = buddy_init_pool(zone, ent->base_addr, ilog2(len)); 
-                printk("initialize 2nd mem pool at %p\n", ent->base_addr);
-            } else { // the rest regions, if exist
-                mp = buddy_create_pool(zone, ent->base_addr, ilog2(len));
-                */
-            } else {    
-                mp = buddy_init_pool(zone, ent->base_addr, ilog2(len));
-                printk("initialize the rest mem pool at %p\n", ent->base_addr);
-            }
+            mp = buddy_init_pool(internal_zone, ent->base_addr, ilog2(len)); 
+            printk("initialize mem pool at %p\n", ent->base_addr);
 
             if(mp == NULL) {
                 panic("Could not initialize pool for region %u in domain %u\n", j, i);
                 return -1;
             }
 
-            /* alloc hash entries, starting from the 2nd region in domain 0 */
-            if(i > 0 || j >= 1) {
-                if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
-                    mm_boot_free(mp, sizeof(struct buddy_mempool));
-                    panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
-                    return -1;
-                }
-                // This region won't be used by boot allocator
-                // TODO, this can be more efficient
-                ulong_t block_order = ilog2(KMEM_UNIT_SIZE); 
-                for (uint64_t block_addr = ent->base_addr; 
-                        block_addr < ent->base_addr + len; block_addr += KMEM_UNIT_SIZE) { 
-                    buddy_free(mp, (void*)block_addr, block_order);
-                }
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-                sys->mem.phys_mem_avail_regular += ent->len;
-                /* TODO. Internal mem will be a little different. Need to do it in add_memory
+            if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
+                mm_boot_free(mp, sizeof(struct buddy_mempool));
+                panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
+                return -1;
             }
-            else { // reserved mem for internal usage 
-                sys->mem.phys_mem_avail_internal += ent->len;
-                */
-#endif
-            }
-
-
-
             list_add(&(ent->glob_link), &glob_zone_list); // zjp useless for new design?
 
             ent->mm_state = mp;
@@ -732,7 +507,6 @@ nk_kmem_init (void)
             if ((ent->base_addr + ent->len) >= sys->mem.phys_mem_avail) {
                 sys->mem.phys_mem_avail = ent->base_addr + ent->len;
             }
-
         }
     }
 
@@ -742,11 +516,134 @@ nk_kmem_init (void)
     // be made by kmem from this point on
     kmem_private_end = boot_mm_get_cur_top();
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    current_threshold = (uint64_t)(sys->mem.phys_mem_avail_regular * PREFETCH_THRESHOLD);
+    return 0;
+
+#else // Pisces. Only initialize internal mempool here, full initialization is done by nk_kmem_init_all()
+
+    // Create internal zone to handle the 1st region in domain 0, for internal usage 
+    internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
+    if(internal_zone == NULL) {
+        panic("Could not initialize memory management for internal region\n"); 
+        return -1;
+    }
+
+    list_for_each_entry(ent, &(numa_info->domains[i]->regions), entry) {
+        if (ent->mm_state) {
+            panic("Memory zone already exists for memory region ([%p - %p] domain %u)\n",
+                    (void*)ent->base_addr,
+                    (void*)(ent->base_addr + ent->len),
+                    ent->domain_id);
+        }
+        if (ent->len < (1UL << MIN_ORDER)) { 
+            KMEM_DEBUG("Skipping kmem initialization of oddball region of size %lu\n", ent->len);
+            continue;
+        }
+
+        ulong_t len = round_up(ent->len, KMEM_UNIT_SIZE);
+
+        internal_mempool = buddy_init_pool(internal_zone, ent->base_addr, ilog2(len)); 
+        if(internal_mempool == NULL) {
+            panic("Failed to initialize the internal mem pool at %p\n", ent->base_addr);
+            return -1;
+        }
+        KMEM_PRINT("initialize the internal mem pool at %p size %lx\n", ent->base_addr, ent->len);
+
+        internal_mem_start = ent->base_addr;
+        internal_mem_end = ent->base_addr + len;
+
+        ent->mm_state = internal_mempool;
+
+        /* keep some stuff from natilus, not sure we'll need it or not */
+        list_add(&(ent->glob_link), &glob_zone_list); 
+
+        if ((ent->base_addr + ent->len) >= sys->mem.phys_mem_avail) {
+            sys->mem.phys_mem_avail = ent->base_addr + ent->len;
+        }
+
+        kmem_private_end = boot_mm_get_cur_top();
+
+        break;
+    }
+    return 0;
 #endif
+}
+
+#ifdef NAUT_CONFIG_PISCES
+int
+nk_kmem_init_all (void)
+{
+    struct sys_info * sys = &(nk_get_nautilus_info()->sys);
+    struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
+    struct mem_region * ent = NULL;
+    unsigned i = 0, j = 0;
+    uint64_t total_mem=0;
+    uint64_t total_phys_mem=0;
+
+    for (i = 0; i < numa_info->num_domains; i++) {
+        /* create zone for this domain */
+        struct buddy_memzone * zone = buddy_create(numa_info->domains[i]->id, MAX_ORDER, MIN_ORDER);
+        if(zone == NULL) {
+            panic("Could not initialize memory management for domain %d\n", numa_info->domains[i]->id);
+            return -1;
+        }
+        numa_info->domains[i]->zone = zone;
+        list_for_each_entry(ent, &(numa_info->domains[i]->regions), entry) {
+            if(j++ == 0)
+                continue; // skip the internal region
+
+            if (ent->mm_state) {
+                panic("Memory zone already exists for memory region ([%p - %p] domain %u)\n",
+                        (void*)ent->base_addr,
+                        (void*)(ent->base_addr + ent->len),
+                        ent->domain_id);
+            }
+            if (ent->len < (1UL << MIN_ORDER)) { 
+                KMEM_DEBUG("Skipping kmem initialization of oddball region of size %lu\n", ent->len);
+                continue;
+            }
+
+            ulong_t len = round_up(ent->len, KMEM_UNIT_SIZE);
+
+            struct buddy_mempool * mp = buddy_create_pool(zone, ent->base_addr, ilog2(len));
+
+            if(mp == NULL) {
+                panic("Could not initialize pool for region %u in domain %u\n", j, i);
+                return -1;
+            }
+            KMEM_PRINT("initialize mem pool at %p size %lx\n", ent->base_addr, ent->len);
+
+            if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
+                mm_boot_free(mp, sizeof(struct buddy_mempool));
+                panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
+                return -1;
+            }
+
+            insert_mempool(zone, mp); 
+
+            ulong_t block_order = ilog2(KMEM_UNIT_SIZE); 
+            for (uint64_t block_addr = ent->base_addr; 
+                    block_addr < ent->base_addr + len; block_addr += KMEM_UNIT_SIZE) { 
+                buddy_free(mp, (void*)block_addr, block_order);
+            }
+
+            ent->mm_state = mp;
+            total_phys_mem += ent->len;
+
+            /* keep some stuff from natilus, not sure we'll need it or not */
+            list_add(&(ent->glob_link), &glob_zone_list); 
+
+            if ((ent->base_addr + ent->len) >= sys->mem.phys_mem_avail) {
+                sys->mem.phys_mem_avail = ent->base_addr + ent->len;
+            }
+        }
+    }
+    KMEM_PRINT("Malloc configured to support a maximum of: 0x%lx bytes for runtime/applications\n", total_phys_mem);
+
+    kmem_private_end = boot_mm_get_cur_top();
+
     return 0;
 }
+#endif
 
 // A fake header representing the boot allocations
 static void     *boot_start;
@@ -789,14 +686,11 @@ _kmem_malloc (size_t size, int cpu, int zero)
     ulong_t order;
     cpu_id_t my_id;
 
-
-
     if (cpu < 0 || cpu >= nk_get_num_cpus()) {
         my_id = my_cpu_id();
     } else {
         my_id = cpu;
     }
-
 
     KMEM_DEBUG("malloc of %lu bytes (zero=%d) from:\n",size,zero);
     KMEM_DEBUG_BACKTRACE();
@@ -831,33 +725,9 @@ retry:
         }
     }
 
-
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    PREFETCH_LOCK_CONF;
-    int prefetch_retry_counter = 0;
-#endif
-
     if (block) {
         __asm__ __volatile__ ("" :::"memory");
         kmem_bytes_allocated += (1UL << order);
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        PREFETCH_LOCK();
-        current_usage += (1UL << order);
-        if(current_usage >= current_threshold) {
-            // now we may need prefetch
-            if(prefetch_size > 0) {
-                // someone already issued a prefetch request
-                // do nothing
-                
-                // TODO may support "overwritting" later
-            } else {
-                // issue the request
-                prefetch_size = DEFAULT_PREFETCH_SIZE;
-                // TODO
-            }
-        }
-        PREFETCH_UNLOCK();
-#endif
     } else {
         // attempt to get memory back by reaping threads now...
         if (first) {
@@ -866,46 +736,8 @@ retry:
             first = 0;
             goto retry;
         }
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        if (prefetch_retry_counter++ > 10) {
-            // already retried 10 times
-            KMEM_DEBUG("malloc permanently failed (even with prefetch) for size %lu order %lu\n",size,order);
-            NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
-            return NULL;
-        }
-
-        // failed after retry
-        PREFETCH_LOCK();
-        if(current_usage >= current_threshold) {
-            // someone must already send the prefetch, so do nothing
-
-            // TODO ASSERT
-            if(prefetch_size == 0) {
-                printk(" Malloc failed but nobody has issued prefetch, current_usage %lu current_threshold %lu\n", 
-                            current_usage, current_threshold);
-            }
-
-        } else {
-            // now we may need prefetch
-            if(prefetch_size > 0) {
-                // someone already issued a prefetch request
-                // do nothing
-                
-                // TODO may support "overwritting" later
-            } else {
-                // issue the request
-                prefetch_size = DEFAULT_PREFETCH_SIZE;
-                // TODO
-            }
-        }
-        PREFETCH_UNLOCK();
-        udelay(5000); // wait 5ms
-        first = 1; // reset the flag for retrying reap()
-        goto retry;
-#else
         KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
         NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
-#endif
         return NULL;
     }
 
@@ -923,19 +755,6 @@ retry:
          */
         //memset(block,0,1ULL << ((struct block*)block)->order);
     }
-
-#ifdef BLOCK_HASH
-    if(((struct block*)block)->order >= BLOCK_HASH_MIN_ORDER) {
-       struct kmem_block_hdr *hdr  = block_hash_alloc(block); 
-       if(!hdr) {
-            printk("Large-obj block hash is full.\n");
-       } else {
-           hdr->addr = block;
-           __asm__ __volatile__ ("" :::"memory");
-           hdr->order = order;
-       }
-    }
-#endif
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
@@ -1069,24 +888,12 @@ kmem_free (void * addr)
     }
     struct buddy_mempool *mp = hdr->mempool;
     /* Return block to the underlying buddy system */
-#ifdef BLOCK_HASH
-    struct kmem_block_hdr *bhdr  = block_hash_find_entry(addr);
-    if(bhdr) { // this is a large-obj recorded in block hash
-        // we don't have to calculate the order
-        order = bhdr->order;
-    }
-    else
-#endif
     order = get_block_order(mp, addr);
 
     kmem_bytes_allocated -= (1UL << order);
     buddy_free(mp, addr, order);
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
 
-#ifdef BLOCK_HASH
-    if(bhdr)
-        block_hash_free_entry(bhdr);
-#endif
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
@@ -1095,12 +902,6 @@ kmem_free (void * addr)
     }
 #endif
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    PREFETCH_LOCK_CONF;
-    PREFETCH_LOCK();
-    current_usage -= (1UL << order);
-    PREFETCH_UNLOCK();
-#endif
 }
 
 /*

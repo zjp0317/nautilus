@@ -897,10 +897,7 @@ kern_ident_map (struct nk_mem_info * mem, ulong_t mbd)
     }
     memset(pml, 0, PAGE_SIZE_4KB);
 
-    printk("Remapping phys mem [%p - %p] with %s pages\n", 
-            (void*)0, 
-            (void*)(last_pfn<<PAGE_SHIFT), 
-            ps2str[lps]);
+
 
 #ifdef NAUT_CONFIG_PISCES
     /* zjp:
@@ -909,8 +906,18 @@ kern_ident_map (struct nk_mem_info * mem, ulong_t mbd)
      * TODO: better design for page fault
      */
     spinlock_init(&pagetable_lock);
+
+    printk("Remapping phys mem [%p - %p] with %s pages\n", 
+            pisces_boot_params->base_mem_paddr, 
+            pisces_boot_params->base_mem_size, 
+            ps2str[lps]);
+
     construct_ident_map_pisces(pml, lps);
 #else
+    printk("Remapping phys mem [%p - %p] with %s pages\n", 
+            (void*)0, 
+            (void*)(last_pfn<<PAGE_SHIFT), 
+            ps2str[lps]);
     construct_ident_map(pml, lps, last_pfn<<PAGE_SHIFT);
 #endif
     /* install the new tables, this will also flush the TLB */

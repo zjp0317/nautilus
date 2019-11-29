@@ -87,11 +87,6 @@ struct nk_mem_info {
     ulong_t   phys_mem_avail;
     ulong_t   npages;
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    uint64_t  phys_mem_avail_internal; // avoid changing phys_mem_avail
-    uint64_t  phys_mem_avail_regular; // avoid changing phys_mem_avail
-#endif
-
     struct list_head mem_zone_list;
 };
 
