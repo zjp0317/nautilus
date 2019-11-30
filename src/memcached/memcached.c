@@ -18,6 +18,9 @@
 
 #define ZJP_TIME 1
 #if ZJP_TIME
+double lwipcost = 0;
+double malloccost = 0;
+double freecost = 0;
 uint64_t zjpflag = 0;
 static double readcost = 0;
 static double writecost= 0;
@@ -897,7 +900,7 @@ static int process_cmd_binary(conn *c) {
             case PROTOCOL_BINARY_CMD_GET:
 #if ZJP_TIME
                 if(zjpflag++ == 1)
-                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf \n", gettime(), readcost, writecost);
+                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost);
 #endif
                 ret = process_bin_get(c);
                 break;
@@ -966,7 +969,7 @@ void drive_machine(conn *c) {
             printf("Close connection %p socket %d\n", c, c->sfd);
             conn_close(c);
 #if ZJP_TIME
-            fprintf(stderr, "Close at %lf readcost %lf writecost %lf \n", gettime(), readcost, writecost);
+            fprintf(stderr, "Close at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost);
 #endif
             break;
         }
@@ -1065,6 +1068,9 @@ int main() {
             zjpflag = 1;
             readcost = 0;
             writecost= 0;
+            lwipcost = 0;
+            malloccost = 0;
+            freecost = 0;
             fprintf(stderr, "new conn arrives at %lf\n", gettime()); 
 #else
             printf("new conn %d arrives\n", conn_sock); 

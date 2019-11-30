@@ -1,0 +1,5 @@
+FLAGS= -DNEED_ALIGN
+all:
+	gcc -O2 $(FLAGS) -o memcached *.c -lpthread
+clean:
+	rm memcached
