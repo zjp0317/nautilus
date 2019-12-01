@@ -487,7 +487,9 @@ shell_add_cmd_to_hist (struct shell_cmd_state * state, char * buf)
 
     hist = malloc(end + 1);
     strncpy(hist, buf, end + 1);
-    hist[end+1] = 0;
+    // zjp ...
+    hist[end] = 0;
+    //hist[end+1] = 0;
 
     cmd = shell_rtree_lookup(state->hist_root, hist);
 
@@ -495,6 +497,7 @@ shell_add_cmd_to_hist (struct shell_cmd_state * state, char * buf)
         DEBUG("command in history already, bumping\n");
         cmd->ref_cnt++;
         cmd->hist_stamp = state->hist_seq++;
+        free(hist); // zjp 
         DEBUG("Setting hist cnt (%d)\n", cmd->hist_stamp);
         return 0;
     }
@@ -570,7 +573,9 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
     if (ret < 0) {
         nk_vc_printf("Don't understand \"%s\"\n", cmd_buf);
     } else {
+#ifndef NAUT_CONFIG_PISCES // disable history such that no memory allocated for history 
         shell_add_cmd_to_hist(state, buf);
+#endif
     }
 
     return ret;
@@ -765,7 +770,7 @@ shell (void * in, void ** out)
     }
 
 #ifdef NAUT_CONFIG_PISCES
-    pisces_buf = malloc(SHELL_MAX_CMD);
+    pisces_buf = kmem_mallocz_internal(SHELL_MAX_CMD);
     nk_wait_queue_initialize(&(pisces_waitq), NULL);
 #endif
 
@@ -794,7 +799,7 @@ shell (void * in, void ** out)
     nk_vc_printf("Exiting shell %s\n", (char*)in);
 
 #ifdef NAUT_CONFIG_PISCES
-    free(pisces_buf);
+    kmem_free_internal(pisces_buf);
 #endif
 
 out:

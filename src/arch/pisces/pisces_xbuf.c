@@ -409,6 +409,9 @@ ipi_handler (excp_entry_t * excp,
         //	xbuf->complete = 1;
         raise_flag(xbuf, XBUF_COMPLETE);
     }
+
+    if(data)
+        kmem_free(data);
 end:
     IRQ_HANDLER_END();
     return ret;

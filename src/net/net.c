@@ -265,7 +265,7 @@ handle_net (char * buf, void * priv)
     }
 #endif
 
-#ifdef NAUT_CONFIG_NET_LWIP_APP_LWIP_SOCKET_ECHO
+#ifdef NAUT_CONFIG_NET_LWIP_APP_SOCKET_ECHO
     if (!strcasecmp(buf,"net lwip socket_echo")) {
         void socket_echo_init();
         nk_vc_printf("Starting socket_echo (port 7)\n");

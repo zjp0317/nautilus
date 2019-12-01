@@ -58,7 +58,16 @@ cmd_handler(u8    * data,
                 printk("Error: pisces_buf is not initialized when issuing cmd %s !\n", nautilus_cmd->cmd);
                 break;
             }
-            strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
+            //strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
+            if(cmd_len < SHELL_MAX_CMD) {
+                 strncpy(pisces_buf, nautilus_cmd->cmd, cmd_len);
+                 pisces_buf[cmd_len] = 0;
+            } else {
+                strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
+            }
+            // free the data in ipi_handler, this may cause meminfo a little bit inaccurate 
+            // when handle_meminfo is executed before ipi_handler frees the data
+
             // wakeup nautilus' shell
             nk_wait_queue_wake_all_extended(&(pisces_waitq), 0);
             break;
