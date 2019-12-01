@@ -477,6 +477,9 @@ static void conn_free(conn *c) {
 }
 
 static int conn_init() {
+    // TODO  the actual index 'sfd' may not start from 0, 
+    // but still very likey is between [0, maxconns), 
+    // So it's fine for now
     if ((conns = calloc(settings.maxconns, sizeof(conn *))) == NULL) {
         fprintf(stderr, "Failed to allocate connection structures\n");
         /* This is unrecoverable so bail out early. */
@@ -508,7 +511,6 @@ conn *conn_new(const int sfd, int read_buffer_size) {
         c->iovsize = IOV_LIST_INITIAL;
         c->msgsize = MSG_LIST_INITIAL;
 
-
         if((c->rbuf = (char *)malloc((size_t)c->rsize)) == NULL 
                 || (c->wbuf = (char *)malloc((size_t)c->wsize)) == NULL
                 || (c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize)) == NULL
@@ -519,6 +521,7 @@ conn *conn_new(const int sfd, int read_buffer_size) {
         }
 
         c->sfd = sfd;
+        conns[sfd] = c;
     }
 
     // get peer
@@ -952,6 +955,7 @@ void drive_machine(conn *c) {
         */
         int res = try_read_network(c);
         if(res == READ_NO_DATA_RECEIVED) {
+            reset_cmd_handler(c);
             continue; // keep working on this conn
         } else if(res == READ_DATA_RECEIVED) {
             // now all data is in c->rbuf

@@ -217,6 +217,7 @@ static void *worker_thread(void *arg) {
 
         // handle this connection until it's closed
         drive_machine(c);
+        cqi_free(item);
     } // worker thread loop
     return NULL;
 }
@@ -355,8 +356,8 @@ int memcached_thread_init(int nthreads, void *arg) {
     }
     pthread_mutex_init(&worker_hang_lock, NULL);
 
-     pthread_mutex_init(&cqi_freelist_lock, NULL);
-     cqi_freelist = NULL;
+    pthread_mutex_init(&cqi_freelist_lock, NULL);
+    cqi_freelist = NULL;
 
     /* Want a wide lock table, but don't waste memory */
     if (nthreads < 3) {
