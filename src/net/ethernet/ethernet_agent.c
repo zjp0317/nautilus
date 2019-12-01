@@ -416,6 +416,9 @@ static void send_callback(nk_net_dev_status_t status,
 	    nk_net_ethernet_release_packet(p);
 	}
     }
+
+    // zjp fix
+    free_op(o);
 }
 
 

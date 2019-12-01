@@ -67,10 +67,13 @@
 #endif
 
 void* calloc(mem_size_t count, mem_size_t size){
-	void* p = malloc(count*size);
+	void* p = mallocz(count*size);
+    // zjp use mallocz
+    /*
 	if(p!=NULL){
 		memset(p,0,count*size);	
 	}
+    */
 	return p;
 }
 

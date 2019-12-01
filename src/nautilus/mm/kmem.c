@@ -82,7 +82,11 @@ static unsigned long kmem_bytes_managed;
 /**
  *  * Total number of bytes allocated from the kernel memory pool.
  *   */
-static unsigned long kmem_bytes_allocated = 0;
+static unsigned long kmem_bytes_allocated_internal = 0;
+static unsigned long kmem_bytes_allocated_regular = 0;
+
+// zjp
+static unsigned long kmem_bytes_allocated_regular_peak = 0;
 
 
 /* This is the list of all memory zones */
@@ -727,7 +731,9 @@ retry:
 
     if (block) {
         __asm__ __volatile__ ("" :::"memory");
-        kmem_bytes_allocated += (1UL << order);
+        kmem_bytes_allocated_regular += (1UL << order);
+        if(kmem_bytes_allocated_regular > kmem_bytes_allocated_regular_peak)
+            kmem_bytes_allocated_regular_peak = kmem_bytes_allocated_regular;
     } else {
         // attempt to get memory back by reaping threads now...
         if (first) {
@@ -755,7 +761,7 @@ retry:
          */
         //memset(block,0,1ULL << ((struct block*)block)->order);
     }
-
+    
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
         panic("KMEM HAS GONE INSANE AFTER MALLOC\n");
@@ -806,6 +812,8 @@ _kmem_malloc_internal (size_t size, int zero)
         return NULL;
     }
 
+    kmem_bytes_allocated_internal += (1UL << ((struct block*)block)->order);
+
     if(zero) {
         memset(block,0,1ULL << ((struct block*)block)->order);
     }
@@ -844,7 +852,7 @@ kmem_free_internal (void * addr)
 
     // internal zone only has one pool
     order = get_block_order(internal_mempool, addr);
-    kmem_bytes_allocated -= (1UL << order);
+    kmem_bytes_allocated_internal -= (1UL << order);
     buddy_free(internal_mempool, addr, order);
 }
 /**
@@ -890,10 +898,9 @@ kmem_free (void * addr)
     /* Return block to the underlying buddy system */
     order = get_block_order(mp, addr);
 
-    kmem_bytes_allocated -= (1UL << order);
+    kmem_bytes_allocated_regular -= (1UL << order);
     buddy_free(mp, addr, order);
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
-
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
@@ -1285,15 +1292,21 @@ handle_meminfo (char * buf, void * priv)
     int i;
     struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
 
+    uint64_t used_internal = 0;
+    uint64_t used_regular = 0;
+
     if(internal_zone) {
         nk_vc_printf("Internal zone:\n");
-        zone_mem_show(internal_zone);
+        used_internal = zone_mem_show(internal_zone);
     }
     
     nk_vc_printf("Regular zone:\n");
     for(i = 0; i < numa_info->num_domains; i++) {
-        zone_mem_show(numa_info->domains[i]->zone);
+        used_regular += zone_mem_show(numa_info->domains[i]->zone);
     }
+
+    nk_vc_printf("\nInternal used %lu bytes.\nRegular used %lu bytes, used-peak %lu bytes.\n\n",
+        used_internal, used_regular, kmem_bytes_allocated_regular_peak);
     return 0;
 /*    
     uint64_t num = kmem_num_pools();

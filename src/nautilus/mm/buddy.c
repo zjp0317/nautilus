@@ -866,11 +866,15 @@ int zone_mem_show(struct  buddy_memzone * zone)
     BUDDY_PRINT(" %lu memory pools\n", zone->num_pools);
     // list pools in zone
     struct buddy_mempool* pool = NULL;
+
+    uint64_t used = 0;
     list_for_each_entry(pool, &(zone->mempools), link) {
+        uint64_t total = 1UL << pool->pool_order;
+        uint64_t available = pool->num_free_blocks << zone->min_order;
+        used += total - available;
         BUDDY_PRINT("    Base Addr=%p, order=%lu, size=%lu, free=%lu\n",
-                (void *)pool->base_addr, pool->pool_order, (1UL << pool->pool_order),
-                pool->num_free_blocks << zone->min_order);
+                (void *)pool->base_addr, pool->pool_order, total, available); 
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
-    return 0;
+    return used;
 }

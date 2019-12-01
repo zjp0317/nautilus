@@ -62,7 +62,7 @@
 #define IFNAME0 'A'
 #define IFNAME1 'P'
 #define SEND_QUEUE_SIZE 15
-#define RECEIVE_QUEUE_SIZE 15
+#define RECEIVE_QUEUE_SIZE 255 // zjp 15
 
 
 /**
