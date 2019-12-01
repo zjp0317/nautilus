@@ -113,6 +113,10 @@ int nk_net_lwip_start(struct nk_net_lwip_config *conf)
 
 }
 
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP
+struct netif * pisces_netif = NULL;
+#endif
+
 int nk_net_lwip_add_interface(struct nk_net_lwip_interface *intconf)
 {
     ip4_addr_t ip, netmask, gw;
@@ -124,6 +128,9 @@ int nk_net_lwip_add_interface(struct nk_net_lwip_interface *intconf)
     if (!inter) {
 	return -1;
     }
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP
+    pisces_netif = inter;
+#endif
 
     memset(inter,0,sizeof(struct netif));
 

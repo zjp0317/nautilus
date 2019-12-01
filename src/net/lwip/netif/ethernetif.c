@@ -62,8 +62,12 @@
 #define IFNAME0 'A'
 #define IFNAME1 'P'
 #define SEND_QUEUE_SIZE 15
-#define RECEIVE_QUEUE_SIZE 255 // zjp 15
+#define RECEIVE_QUEUE_SIZE 15
 
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
+#define RECEIVE_DSC_COUNT  255 // should match RX_DSC_COUNT-1, due to nautilus's map ring logic 
+#define SEND_DSC_COUNT     255 // should match TX_DSC_COUNT-1 
+#endif
 
 /**
  * Helper struct to hold private data used to operate your ethernet interface.
@@ -102,6 +106,96 @@ static void parse_packet(nk_ethernet_packet_t *packet){
     }
     //printk("The len of packet is %d\n", packet->len);
 }
+
+
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
+static void pisces_send_callback (nk_net_dev_status_t status,
+        nk_ethernet_packet_t *packet)
+{
+    if(status != NK_NET_DEV_STATUS_SUCCESS) {
+        ERROR("Receive failure for packet %p\n", packet);
+        return;
+    }
+    nk_net_ethernet_release_packet(packet);
+}
+
+static void pisces_recv_callback (nk_net_dev_status_t status,
+        nk_ethernet_packet_t *packet)
+{
+
+    struct pbuf *p, *q;
+    u32_t len, now_index;
+    struct netif *netif; 
+    struct nk_dev * d;
+    struct nk_net_dev_int *di; 
+
+    if(status != NK_NET_DEV_STATUS_SUCCESS) {
+        ERROR("Receive failure for packet %p\n", packet);
+        return;
+    }
+
+    netif = (struct netif *)packet->metadata;
+    d = &((struct nk_net_dev *)(netif->state))->dev;
+    di = (struct nk_net_dev_int *)(d->interface);
+
+    parse_packet(packet);
+
+    if (status) {
+	    ERROR("Bad packet receive - reissuing a receive\n");
+        return;
+    }
+
+    now_index=0;
+    len = packet->len;
+#if ETH_PAD_SIZE
+    len += ETH_PAD_SIZE; /* allow room for Ethernet padding */
+#endif
+    p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
+
+    if (p != NULL) {
+#if ETH_PAD_SIZE
+        pbuf_header(p, -ETH_PAD_SIZE); /* drop the padding word */
+#endif
+        for (q = p; q != NULL; q = q->next) {
+            memcpy(q->payload, packet->raw+now_index, q->len);
+            now_index+=q->len;
+        }
+
+        // don't release, directly reuse it
+        //nk_net_ethernet_release_packet(pk);      
+
+        MIB2_STATS_NETIF_ADD(netif, ifinoctets, p->tot_len);
+        if (((u8_t*)p->payload)[0] & 1) {
+            /* broadcast or multicast packet*/
+            MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
+        } else {
+            /* unicast packet*/
+            MIB2_STATS_NETIF_INC(netif, ifinucastpkts);
+        }
+#if ETH_PAD_SIZE
+        pbuf_header(p, ETH_PAD_SIZE); /* reclaim the padding word */
+#endif
+        LINK_STATS_INC(link.recv);
+
+        if (netif->input(p, netif) != ERR_OK) {
+            LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
+            pbuf_free(p);
+            p = NULL;
+        }
+    } else {
+        //nk_net_ethernet_release_packet(packet);
+
+        LINK_STATS_INC(link.memerr);
+        LINK_STATS_INC(link.drop);
+        MIB2_STATS_NETIF_INC(netif, ifindiscards);
+    }
+
+    // directly reuse this packet
+    packet->refcount = 1;
+
+    di->post_receive(d->state, packet->raw, MAX_ETHERNET_PACKET_LEN, pisces_recv_callback, packet);
+}
+#endif
 
 static void recv_callback(nk_net_dev_status_t status,
 		   nk_ethernet_packet_t *packet,
@@ -153,6 +247,8 @@ static void recv_callback(nk_net_dev_status_t status,
         printk("finish recev packet %p %02x%02x at %lu\n", packet,t[12], t[13], nk_sched_get_realtime());
     }
     */
+    // zjp this could be a double free, as low_level_input may already free it?
+
     nk_net_ethernet_release_packet(packet);//realse packet
 
 
@@ -178,6 +274,54 @@ launch_receive:
 static void
 low_level_init(struct netif *netif)
 {
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP 
+    // netif->state is the name, specified in netif_add()
+    // reuse it to hold the dev
+    struct nk_net_dev * netd  = (struct nk_net_dev *)nk_net_dev_find((char*)netif->state);
+    struct nk_dev* d = &netd->dev;
+    struct nk_net_dev_int *di = (struct nk_net_dev_int *)(d->interface);
+    int i;
+    struct nk_net_dev_characteristics c;
+
+    nk_net_dev_get_characteristics(netd, &c);
+
+    netif->state = (void*)netd;
+    
+    /* set MAC hardware address length */
+    netif->hwaddr_len =ETHARP_HWADDR_LEN;
+
+    memcpy(netif->hwaddr, c.mac, ETHER_MAC_LEN);
+    
+    netif->mtu = c.max_tu;
+
+    /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP;
+
+#if LWIP_IPV6 && LWIP_IPV6_MLD
+    if (netif->mld_mac_filter != NULL) {
+        ip6_addr_t ip6_allnodes_ll;
+        ip6_addr_set_allnodes_linklocal(&ip6_allnodes_ll);
+        netif->mld_mac_filter(netif, &ip6_allnodes_ll, NETIF_ADD_MAC_FILTER);
+    }
+#endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
+
+    uint8_t flags = irq_disable_save();
+
+    for(i = 0; i < RECEIVE_DSC_COUNT; i++) {
+        nk_ethernet_packet_t *pk = nk_net_ethernet_alloc_packet(-1);
+        if(pk) {
+            pk->metadata = netif;
+            if(0 == di->post_receive(d->state, pk->raw, MAX_ETHERNET_PACKET_LEN, pisces_recv_callback, pk)) {
+                continue;
+            }
+        }
+        ERROR("Failed to initialize receive - we are probably dead now\n");
+        break; 
+    }
+
+    irq_enable_restore (flags);
+
+#else // pisces
     struct ethernetif *ethernetif = netif->state;
     struct nk_net_dev *netDevice;
     struct nk_net_dev_characteristics c;
@@ -231,7 +375,9 @@ low_level_init(struct netif *netif)
 						    netif)) {
 	ERROR("Failed to launch recurring receive - we are probably dead now\n");
     }
+
   /* Do whatever else is needed to initialize interface. */
+#endif
 }
 
 /**
@@ -253,6 +399,51 @@ low_level_init(struct netif *netif)
 static err_t
 low_level_output(struct netif *netif, struct pbuf *p)
 {
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
+    struct pbuf *q;
+    u32_t len = 0;
+
+    struct nk_dev * d = &((struct nk_net_dev *)(netif->state))->dev;
+    struct nk_net_dev_int *di = (struct nk_net_dev_int *)(d->interface);
+#if ETH_PAD_SIZE
+    pbuf_header(p, -ETH_PAD_SIZE); /* drop the padding word */
+#endif
+
+    nk_ethernet_packet_t *pk = nk_net_ethernet_alloc_packet(-1);
+
+    // TODO pk->raw should be large enough
+    // trade memory for speed
+    for (q = p; q != NULL; q = q->next) {
+        memcpy(pk->raw+len, q->payload, q->len);
+        len+=q->len;
+    }
+    pk->len = len;
+    pk->metadata = netif;
+
+    if(di->post_send(d->state, pk->raw, pk->len, pisces_send_callback, pk)) {
+        ERROR("Fail to send a packet\n");
+        return ERR_MEM;	
+    }
+
+    //signal that packet should be sent();
+    MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
+    if (((u8_t*)p->payload)[0] & 1) {
+        /* broadcast or multicast packet*/
+        MIB2_STATS_NETIF_INC(netif, ifoutnucastpkts);
+    } else {
+        /* unicast packet */
+        MIB2_STATS_NETIF_INC(netif, ifoutucastpkts);
+    }
+
+#if ETH_PAD_SIZE
+    pbuf_header(p, ETH_PAD_SIZE); /* reclaim the padding word */
+#endif
+
+    LINK_STATS_INC(link.xmit);
+
+    return ERR_OK;
+
+#else // pisces
     struct ethernetif *ethernetif = netif->state;
     struct nk_net_dev *netDevice = ethernetif -> device;
     struct pbuf *q;
@@ -324,6 +515,7 @@ low_level_output(struct netif *netif, struct pbuf *p)
     }
     */
   return ERR_OK;
+#endif
 }
 
 /**
@@ -455,6 +647,29 @@ ethernetif_input(struct netif *netif, nk_ethernet_packet_t *pk)
 err_t
 ethernetif_init(struct netif *netif)
 {
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP 
+
+#if LWIP_NETIF_HOSTNAME
+  /* Initialize interface hostname */
+  netif->hostname = "lwip";
+#endif /* LWIP_NETIF_HOSTNAME */
+
+  MIB2_INIT_NETIF(netif, snmp_ifType_ethernet_csmacd, LINK_SPEED_OF_YOUR_NETIF_IN_BPS);
+
+  //netif->state = ethernetif;
+  netif->name[0] = IFNAME0;
+  netif->name[1] = IFNAME1;
+  netif->output = etharp_output;
+#if LWIP_IPV6
+  netif->output_ip6 = ethip6_output;
+#endif /* LWIP_IPV6 */
+  netif->linkoutput = low_level_output;
+  /* initialize the hardware */
+  
+  low_level_init(netif);
+  return ERR_OK;
+
+#else // pisces 
   struct ethernetif *ethernetif;
 
   LWIP_ASSERT("netif != NULL", (netif != NULL));
@@ -498,6 +713,7 @@ ethernetif_init(struct netif *netif)
   
   low_level_init(netif);
   return ERR_OK;
+#endif
 }
 
 #endif /* 0 */
