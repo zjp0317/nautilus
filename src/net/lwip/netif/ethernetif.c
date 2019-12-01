@@ -110,8 +110,9 @@ static void parse_packet(nk_ethernet_packet_t *packet){
 
 #ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
 static void pisces_send_callback (nk_net_dev_status_t status,
-        nk_ethernet_packet_t *packet)
+        void* state)
 {
+     nk_ethernet_packet_t *packet = (nk_ethernet_packet_t*)state;
     if(status != NK_NET_DEV_STATUS_SUCCESS) {
         ERROR("Receive failure for packet %p\n", packet);
         return;
@@ -120,8 +121,9 @@ static void pisces_send_callback (nk_net_dev_status_t status,
 }
 
 static void pisces_recv_callback (nk_net_dev_status_t status,
-        nk_ethernet_packet_t *packet)
+        void* state)
 {
+     nk_ethernet_packet_t *packet = (nk_ethernet_packet_t*)state;
 
     struct pbuf *p, *q;
     u32_t len, now_index;
