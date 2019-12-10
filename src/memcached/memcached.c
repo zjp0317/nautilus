@@ -21,6 +21,8 @@
 double lwipcost = 0;
 double malloccost = 0;
 double freecost = 0;
+double getcost = 0;
+double setcost = 0;
 uint64_t zjpflag = 0;
 static double readcost = 0;
 static double writecost= 0;
@@ -898,15 +900,23 @@ static int process_cmd_binary(conn *c) {
 
         switch(c->cmd) {
             case PROTOCOL_BINARY_CMD_SET:
+            {
+                double ss = gettime();
                 ret = process_bin_set(c);
+                setcost += gettime() -ss;
                 break;
+            }
             case PROTOCOL_BINARY_CMD_GET:
+            {
 #if ZJP_TIME
                 if(zjpflag++ == 1)
-                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost);
+                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf get %lf set %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost, getcost, setcost);
 #endif
+                double ss = gettime();
                 ret = process_bin_get(c);
+                getcost += gettime() -ss;
                 break;
+            }
             default:
                 printf("Receive unhandled cmd %d\n", c->cmd);
                 return -1;
@@ -973,7 +983,8 @@ void drive_machine(conn *c) {
             printf("Close connection %p socket %d\n", c, c->sfd);
             conn_close(c);
 #if ZJP_TIME
-            fprintf(stderr, "Close at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost);
+            //zjpflag = 0;
+            fprintf(stderr, "Close at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf get %lf set %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost, getcost, setcost);
 #endif
             break;
         }
@@ -983,16 +994,27 @@ void drive_machine(conn *c) {
 #ifdef __Nautilus__
 static int
 handle_memcached(char * buf, void * priv) {
+    int ret = 0;
+    size_t maxbytes = 0;
+    if ((ret = sscanf(buf, "memcached %lu",&maxbytes)) != 1) {
+        printf("Memcached setting: no mem_limit\n");
+        maxbytes = 0;
+    } else {
+        printf("Memcached setting: maxbytes %lu MB\n", maxbytes);
+        maxbytes *= 1024*1024UL;
+    }
 #else
 int main() {
+    size_t maxbytes = 64*1024*1024UL;;
 #endif
     
+    zjpflag = 1;
     settings.verbose = 1;//2;
     settings.maxconns = 1024;
 
     settings.port = 11211;
     settings.num_threads = 4;
-    settings.maxbytes = 64 * 1024 * 1024;
+    settings.maxbytes = maxbytes;
     settings.oldest_live = 0;
     settings.oldest_cas = 0;
     settings.factor = 1.25;
@@ -1005,6 +1027,9 @@ int main() {
 
     // from NO_MODERN
     settings.slab_chunk_size_max = settings.slab_page_size;
+
+    printf("Initialize memcached: maxconn %lu, num_threads %lu, chunk_size_max %lu\n",
+        settings.maxconns, settings.num_threads,settings.slab_chunk_size_max);
 
     enum hashfunc_type hash_type = MURMUR3_HASH;
 
@@ -1069,12 +1094,14 @@ int main() {
         conn_sock = accept(acc_sock, (struct sockaddr*)&client_addr, &client_addrlen);
         if(conn_sock >= 0) {
 #if ZJP_TIME
-            zjpflag = 1;
+            //zjpflag = 1;
             readcost = 0;
             writecost= 0;
             lwipcost = 0;
             malloccost = 0;
             freecost = 0;
+            getcost = 0;
+            setcost = 0;
             fprintf(stderr, "new conn arrives at %lf\n", gettime()); 
 #else
             printf("new conn %d arrives\n", conn_sock); 
