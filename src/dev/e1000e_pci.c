@@ -98,7 +98,7 @@
 #define RX_DSC_COUNT          256 // zjp 128      // equal to DMA block count
 #define RX_BLOCKSIZE          256      // bytes available per DMA block
 #define RESTART_DELAY         5        // usec = 5 us 
-#define RX_PACKET_BUFFER_SIZE 2048     // the size of the packet buffer
+#define RX_PACKET_BUFFER_SIZE 2048 // zjp 2048     // the size of the packet buffer
 
 // After this line, PLEASE DO NOT CHANGE ANYTHING.
 
@@ -327,6 +327,9 @@
 #define E1000E_ICR_OTHER             (1 << 24)  // other interrupts
 #define E1000E_ICR_INT_ASSERTED      (1 << 31)  // interrupt asserted
 #define E1000E_RDTR_FPD              (1 << 31)  // flush partial descriptor block
+
+// zjp
+#define E1000E_ICR_RXDMT0            (1 << 4)   // RXDMT0
 
 #define E1000E_RSPD_MASK             (0xfff)  // 
 
@@ -815,7 +818,6 @@ static int e1000e_receive_packet(uint8_t* buffer,
   RXD_ADDR(RXD_TAIL) = (uint64_t*) buffer;
 
   RXD_TAIL = RXD_INC(RXD_TAIL, 1);
-  // zjp with loop logic, do it in the end ? 
   WRITE_MEM(state, E1000E_RDT_OFFSET, RXD_TAIL);
 
   DEBUG("e1000e receive pkt fn: after moving tail head: %d, prev_head: %d tail: %d\n",
@@ -1039,60 +1041,77 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
   DEBUG("irq_handler fn: ICR: 0x%08x IMS: 0x%08x mask_int: 0x%08x\n",
         icr, state->ims_reg, mask_int);
 
+  // zjp disable interrupts
+  //WRITE_MEM(state, E1000E_IMC_OFFSET, ~0);
+
   void (*callback)(nk_net_dev_status_t, void*) = NULL;
   void *context = NULL;
   nk_net_dev_status_t status = NK_NET_DEV_STATUS_SUCCESS;
 #if 1 // read multiple pkgs upon each interrupt     
   if (mask_int & (E1000E_ICR_TXDW | E1000E_ICR_TXQ0)) {
-    which_op = op_rx;
+      which_op = op_rx;
 
-    while (TXD_STATUS(TXD_PREV_HEAD).dd & 1)  // keep checking DD (hardware is done with i)
-    {
-        e1000e_unmap_callback(state->tx_map,
-                (uint64_t **)&callback,
-                (void **)&context);
-        //if(ret == -1) break;
+      while (TXD_STATUS(TXD_PREV_HEAD).dd & 1)  // keep checking DD (hardware is done with i)
+      {
+          e1000e_unmap_callback(state->tx_map,
+                  (uint64_t **)&callback,
+                  (void **)&context);
+          //if(ret == -1) break;
 
-        if (TXD_STATUS(TXD_PREV_HEAD).ec || TXD_STATUS(TXD_PREV_HEAD).lc) {
-            ERROR("irq_handler fn: transmit errors\n");
-            status = NK_NET_DEV_STATUS_ERROR;
-        }
+          if (TXD_STATUS(TXD_PREV_HEAD).ec || TXD_STATUS(TXD_PREV_HEAD).lc) {
+              ERROR("irq_handler fn: transmit errors\n");
+              status = NK_NET_DEV_STATUS_ERROR;
+          }
 
-        TXD_STATUS(TXD_PREV_HEAD).dd = 0;
-        TXD_PREV_HEAD = TXD_INC(1, TXD_PREV_HEAD);
+          TXD_STATUS(TXD_PREV_HEAD).dd = 0;
+          TXD_PREV_HEAD = TXD_INC(1, TXD_PREV_HEAD);
 
-        if (callback) {
-            DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
-            callback(status, context);
-        }
-    }
+          if (callback) {
+              DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
+              callback(status, context);
+          }
+      }
   }
-  if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0)) {
+  if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0 | E1000E_ICR_RXDMT0)) {
+    extern uint64_t zjpflag;
+    extern double lwipcost;
+    extern double nk_sched_get_realtime_secs();
+    static double ss = 0;
+    if(zjpflag > 0) {
+        if(ss != 0 ) lwipcost += nk_sched_get_realtime_secs() - ss ;
+        ss = nk_sched_get_realtime_secs(); 
+    }
+  //if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0)) {
       which_op = op_rx;
       // receive all available per interrupt
       while (RXD_STATUS(RXD_PREV_HEAD).dd & 1) { // keep checking DD (hardware is done with i)
           e1000e_unmap_callback(state->rx_map,
                   (uint64_t **)&callback,
                   (void **)&context);
-          //while(0 == e1000e_unmap_callback(state->rx_map,
-      //          (uint64_t **)&callback,
-        //        (void **)&context)) {
-        if (RXD_ERRORS(RXD_PREV_HEAD)) {
-            ERROR("irq_handler fn: receive an error packet\n");
-            status = NK_NET_DEV_STATUS_ERROR;
-        }
 
-        RXD_STATUS(RXD_PREV_HEAD).dd = 0;
-        RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
+          if (RXD_ERRORS(RXD_PREV_HEAD)) {
+              ERROR("irq_handler fn: receive an error packet\n");
+              status = NK_NET_DEV_STATUS_ERROR;
+          }
 
-        if (callback) {
-            DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
-            callback(status, context);
-        }
-    }
+
+
+          if (callback) {
+              DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
+              callback(status, context);
+          }
+
+          RXD_STATUS(RXD_PREV_HEAD).dd = 0;
+          RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
+      }
 
   }
+  // clear pending ones
+  //READ_MEM(state, E1000E_ICR_OFFSET);
 
+  //WRITE_MEM(state, E1000E_IMS_OFFSET, state->ims_reg);
+  // zjp enable interrutps
+  //WRITE_MEM(state, E1000E_IMS_OFFSET, 0xFFFFFFFF);
 #else
   if (mask_int & (E1000E_ICR_TXDW | E1000E_ICR_TXQ0)) {
     
@@ -1445,6 +1464,10 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
             return -1;
         }
 
+#if 0 // zjp
+        base_vec = 99;
+#endif
+
         DEBUG("%s vectors are %d..%d\n",state->name,base_vec,base_vec+num_vecs-1);
         
         *vec = base_vec; // just in case
@@ -1480,20 +1503,26 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
 
             // now configure device
             // interrupt delay value = 0 -> does not delay
-            WRITE_MEM(state, E1000E_TIDV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_TIDV_OFFSET, 0);
+            WRITE_MEM(state, E1000E_TIDV_OFFSET, 8); // zjp
             // receive interrupt delay timer = 0
             // -> interrupt when the device receives a package
-            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD);
+            //WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD);
+            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD | 0x20); // zjp
             DEBUG("init fn: RDTR new 0x%08x alias 0x%08x expect 0x%08x\n",
                     READ_MEM(state, E1000E_RDTR_OFFSET_NEW),
                     READ_MEM(state, E1000E_RDTR_OFFSET_ALIAS),
                     E1000E_RDTR_FPD);
-            WRITE_MEM(state, E1000E_RADV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_RADV_OFFSET, 0);
+            WRITE_MEM(state, E1000E_RADV_OFFSET, 0x20); // zjp
 
             // enable only transmit descriptor written back, receive interrupt timer
             // rx queue 0
             uint32_t ims_reg = 0;
             ims_reg = E1000E_ICR_TXDW | E1000E_ICR_TXQ0 | E1000E_ICR_RXT0 | E1000E_ICR_RXQ0;
+            // zjp
+            //ims_reg |= E1000E_ICR_RXO | E1000E_ICR_RXDMT0 | 0xffffffff;
+
             WRITE_MEM(state, E1000E_IMS_OFFSET, ims_reg);
             state->ims_reg = ims_reg;
             e1000e_interpret_ims(state);
@@ -1510,7 +1539,8 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
 
             // optimization 
             WRITE_MEM(state, E1000E_AIT_OFFSET, 0);
-            WRITE_MEM(state, E1000E_TADV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_TADV_OFFSET, 0);
+            WRITE_MEM(state, E1000E_TADV_OFFSET, 8); // zjp
             DEBUG("init fn: end init fn --------------------\n");
 
             INFO("%s operational\n",state->name);
