@@ -243,7 +243,12 @@ buddy_init (uint_t  node_id,
     zone->node_id   = node_id;
 
     /* Allocate a list for every order up to the maximum allowed order */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    zone->avail = mm_boot_alloc((max_order + 1) * sizeof(struct block_freelist));
+    memset(zone->avail, 0, (max_order + 1) * sizeof(struct block_freelist));
+#else
     zone->avail = mm_boot_alloc((max_order + 1) * sizeof(struct list_head));
+#endif
 
     if (!zone->avail) { 
         ERROR_PRINT("Cannot allocate list heads\n");
@@ -252,7 +257,11 @@ buddy_init (uint_t  node_id,
 
     /* Initially all lists are empty */
     for (i = 0; i <= max_order; i++) {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        INIT_LIST_HEAD((struct list_head*)&zone->avail[i]);
+#else
         INIT_LIST_HEAD(&zone->avail[i]);
+#endif
     }
 
     spinlock_init(&(zone->lock));
@@ -297,7 +306,11 @@ buddy_create (uint_t  node_id,
     zone->node_id   = node_id;
 
     /* Allocate a list for every order up to the maximum allowed order */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    zone->avail = kmem_mallocz_internal((max_order + 1) * sizeof(struct block_freelist));
+#else
     zone->avail = kmem_malloc_internal((max_order + 1) * sizeof(struct list_head));
+#endif
 
     if (!zone->avail) { 
         ERROR_PRINT("Cannot allocate list heads\n");
@@ -306,7 +319,11 @@ buddy_create (uint_t  node_id,
 
     /* Initially all lists are empty */
     for (i = 0; i <= max_order; i++) {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        INIT_LIST_HEAD((struct list_head*)&zone->avail[i]);
+#else
         INIT_LIST_HEAD(&zone->avail[i]);
+#endif
     }
 
     spinlock_init(&(zone->lock));
@@ -327,6 +344,52 @@ insert_mempool(struct buddy_memzone * zone,
     list_add(&pool->link, &(zone->mempools));
     zone->num_pools++;
 }
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+static void (*notify_prefetch)() = NULL;
+
+void
+buddy_prefetch_init (void (*func)())
+{
+    notify_prefetch = func;
+    printk("Init prefetch handler addr %p\n", func);
+}
+
+int hard_prefetch (struct buddy_memzone * zone)
+{
+    ulong_t flags;
+    int ret;
+
+    flags = spin_lock_irq_save(&(zone->lock));
+        ret = ++(zone->mem_dynamic_inprogress);
+        notify_prefetch();
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    return ret;
+}
+
+void
+check_prefetch (struct buddy_memzone * zone, ulong_t order)
+{
+    ASSERT(notify_prefetch != NULL);
+    ASSERT(zone != NULL);
+
+    if(zone->mem_dynamic_inprogress == 0) {
+        // no in-progress prefetching 
+        double ideal_capacity = (double)zone->avail[order].allocated * CAPACITY_FACTOR;
+        if((double)zone->avail[order].capacity < ideal_capacity) { 
+            // need prefetch 
+            // To ensure that one prefetch is 'sufficient':
+            //  If Factor >= 1, we need to increase this capacit by at least 1+Factor 
+            //  If Factor < 1, we only need to increase this capacity by 2
+            // Thus, for most cases, prefetching 1 pool is enough
+            BUDDY_PRINT("Prefetch due to order %2lu: %lu allocated, %lu capacity\n", order, zone->avail[order].allocated, zone->avail[order].capacity);
+            zone->mem_dynamic_inprogress = 1;
+            notify_prefetch(); 
+        }
+    }
+}
+#endif
 
 /* zjp:
  * This add a pool of a given size to a buddy allocated zone
@@ -471,25 +534,6 @@ buddy_create_pool(struct buddy_memzone * zone,
         goto err;
 #endif
 
-#if 0 //use mallocz
-    /* Initially mark all minimum-sized blocks as allocated */
-    bitmap_zero(mp->tag_bits, mp->num_blocks);
-    /* initialize order bits */ 
-    bitmap_zero(mp->order_bits, mp->num_blocks);
-    /* initialize flag bits */
-    bitmap_zero(mp->flag_bits, mp->num_blocks);
-#endif
-
-#if 0 // We should alloc unit hash entries first before actually 'adding' the pool
-    flags = spin_lock_irq_save(&(zone->lock));
-    {
-        insert_mempool(zone, mp);
-    }
-    spin_unlock_irq_restore(&(zone->lock), flags);
-
-    buddy_free(mp, (void*)base_addr, pool_order);
-#endif
-
     BUDDY_DEBUG("Added memory pool (addr=%p), order=%lu\n", (void *)base_addr, pool_order);
 
     return mp;
@@ -525,12 +569,22 @@ buddy_remove_pool(struct buddy_mempool * mp)
     list_del_init(&mp->link);
     zone->num_pools--;
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    // update capacities for smaller orders
+    ulong_t i = 0, j = mp->pool_order;
+    while(j >= zone->min_order) {
+        zone->avail[j--].capacity -= 1 << i++;
+    }
+#endif
+
     spin_unlock_irq_restore(&(zone->lock), flags);
 
     buddy_cleanup_pool(mp);
 
     return 0;
 }
+
+
 
 /**
  * Allocates a block of memory of the requested size (2^order bytes).
@@ -602,7 +656,12 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
 
         /* Trim if a higher order block than necessary was allocated */
+
         while (j > order) {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+            zone->avail[j].capacity -= 1;
+            check_prefetch(zone, j);
+#endif
             --j;
             buddy_block = (struct block *)((ulong_t)block + (1UL << j));
             buddy_block->order = j;
@@ -612,12 +671,29 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
             mark_available(mp, block_id);
 
             BUDDY_DEBUG("Inserted buddy block %p into order %lu\n",buddy_block,j);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+            list_add(&buddy_block->link, (struct list_head*)&zone->avail[j]);
+#else
             list_add(&buddy_block->link, &zone->avail[j]);
+#endif
         }
 
         block->order = j;
         block->mempool = NULL;
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        zone->avail[j].allocated += 1;
+
+        // update capacities for smaller orders
+        ulong_t i = 0;
+        
+        while(j >= zone->min_order) {
+            zone->avail[j].capacity -= 1 << i++;
+            check_prefetch(zone, j);
+            --j;
+        }
+
+#endif
         mp->num_free_blocks -= (1UL << (order - zone->min_order));
 
         BUDDY_DEBUG("Returning block %p which is in memory pool %p-%p\n",block,mp->base_addr,mp->base_addr+(1ULL << mp->pool_order));
@@ -636,6 +712,9 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
  */
 void
 buddy_free(
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    char is_new_mem,
+#endif
     //!  Use mempool directly instead of memzone  
     struct buddy_mempool *  mp,
     //!  Address of memory block to free.
@@ -686,9 +765,23 @@ buddy_free(
     }
 #endif
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    // a buddy free could be used for adding mem 
+    if(is_new_mem == 0) {
+        // only update allocated when this free() is actually for an alloc()
+        zone->avail[order].allocated -= 1;
+    } else {
+        // new pool arrives, reset inprogress flag
+        zone->mem_dynamic_inprogress = 0;
+    }
+
+    ulong_t i = 0, j = order;
+    while(j >= zone->min_order) {
+        zone->avail[j--].capacity += 1 << i++;
+    }
+#endif
     /* Coalesce as much as possible with adjacent free buddy blocks */
     while (order < mp->pool_order) {
-
         /* Determine our buddy block's address */
         struct block * buddy = find_buddy(mp, block, order);
 
@@ -714,6 +807,9 @@ buddy_free(
         }
         ++order;
         block->order = order;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        zone->avail[order].capacity += 1;
+#endif
     }
 
     /* Add the (possibly coalesced) block to the appropriate free list */
@@ -726,8 +822,11 @@ buddy_free(
 
     BUDDY_DEBUG("End of mark: block=%p order=%lu pool_order=%lu block->order=%lu\n",block,order,mp->pool_order,block->order);
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    list_add(&block->link, (struct list_head*)&zone->avail[order]);
+#else
     list_add(&block->link, &zone->avail[order]);
-
+#endif
     spin_unlock_irq_restore(&(zone->lock), flags);
 
     BUDDY_DEBUG("block at %p of order %lu being made available\n",block,block->order);
@@ -858,10 +957,18 @@ int zone_mem_show(struct  buddy_memzone * zone)
     for (i = zone->min_order; i <= zone->max_order; i++) {
         /* Count the number of memory blocks in the list */
         num_blocks = 0;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        list_for_each(entry, (struct list_head*)&zone->avail[i]) {
+#else
         list_for_each(entry, &zone->avail[i]) {
+#endif
             ++num_blocks;
         }
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        BUDDY_PRINT("  order %2lu: %lu free blocks, %lu allocated, %lu capacity\n", i, num_blocks, zone->avail[i].allocated, zone->avail[i].capacity);
+#else
         BUDDY_PRINT("  order %2lu: %lu free blocks\n", i, num_blocks);
+#endif
     }
     BUDDY_PRINT(" %lu memory pools\n", zone->num_pools);
     // list pools in zone

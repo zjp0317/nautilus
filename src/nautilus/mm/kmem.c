@@ -133,6 +133,13 @@ static struct buddy_memzone * internal_zone = NULL;
 static uint64_t internal_mem_start = 0;
 static uint64_t internal_mem_end = 0;
 
+#define ZJPLOG_SIZE 1024
+static uint64_t zjplog[ZJPLOG_SIZE];
+static uint64_t zjplog0[ZJPLOG_SIZE];
+static uint64_t zjplog1[ZJPLOG_SIZE];
+static uint64_t zjplog2[ZJPLOG_SIZE];
+static int zjpindex = 0;
+
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
  */
@@ -326,7 +333,11 @@ kmem_add_memory (struct buddy_mempool * mp,
 	       mp,base_addr,size,chunk_size,chunk_order,num_chunks,addr);
     
     for (i = 0; i < num_chunks; i++) { 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        buddy_free(1, mp, addr+i*chunk_size, chunk_order);
+#else
         buddy_free(mp, addr+i*chunk_size, chunk_order);
+#endif
     }
 
     /* Update statistics */
@@ -396,7 +407,11 @@ kmem_add_mempool (struct buddy_memzone * zone,
     spin_unlock_irq_restore(&(zone->lock), flags);
 
     /* now it's safe to enable allocation on this mempool */ 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    buddy_free(1, mp, (void*)base_addr, mp->pool_order);
+#else
     buddy_free(mp, (void*)base_addr, mp->pool_order);
+#endif
 
     return 0;
 err:
@@ -438,6 +453,23 @@ kmem_remove_mempool (ulong_t base_addr,
     return 0;
 }
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+#include <dev/apic.h>
+#include <arch/pisces/pisces_boot_params.h>
+void 
+nk_kmem_notify_prefetch () {
+    // TODO now just use the existing lcall xbuf, may need another channel
+    pisces_boot_params->prefetch_info = 0x1215;
+
+    KMEM_PRINT("Notify prefetch to host apic %d vector %d\n",
+                pisces_boot_params->host_mem_apic,
+                pisces_boot_params->host_mem_vector);
+
+    apic_ipi(per_cpu_get(apic),
+        pisces_boot_params->host_mem_apic,
+        pisces_boot_params->host_mem_vector);
+}
+#endif
 /* 
  * initializes the kernel memory pools based on previously 
  * collected memory information (including NUMA domains etc.)
@@ -523,6 +555,9 @@ nk_kmem_init (void)
     return 0;
 
 #else // Pisces. Only initialize internal mempool here, full initialization is done by nk_kmem_init_all()
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    buddy_prefetch_init (nk_kmem_notify_prefetch);
+#endif    
 
     // Create internal zone to handle the 1st region in domain 0, for internal usage 
     internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
@@ -627,7 +662,11 @@ nk_kmem_init_all (void)
             ulong_t block_order = ilog2(KMEM_UNIT_SIZE); 
             for (uint64_t block_addr = ent->base_addr; 
                     block_addr < ent->base_addr + len; block_addr += KMEM_UNIT_SIZE) { 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+                buddy_free(1, mp, (void*)block_addr, block_order);
+#else
                 buddy_free(mp, (void*)block_addr, block_order);
+#endif
             }
 
             ent->mm_state = mp;
@@ -744,7 +783,18 @@ retry:
         }
         KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
         NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        KMEM_PRINT("Try hard prefetch upon malloc %lu order %lu inprogress %u\n", size, order, local_domain->zone->mem_dynamic_inprogress);
+        if(hard_prefetch(local_domain->zone) >= HARD_PREFETCH_TRIES) {
+            return NULL;
+        } else {
+            first = 1;
+            udelay(10000); // 10ms
+            goto retry;
+        }
+#else
         return NULL;
+#endif
     }
 
     KMEM_DEBUG("malloc succeeded: size %lu order %lu -> 0x%lx\n",size, order, block);
@@ -853,7 +903,11 @@ kmem_free_internal (void * addr)
     // internal zone only has one pool
     order = get_block_order(internal_mempool, addr);
     kmem_bytes_allocated_internal -= (1UL << order);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    buddy_free(0, internal_mempool, addr, order);
+#else
     buddy_free(internal_mempool, addr, order);
+#endif
 }
 /**
  * Frees memory previously allocated with kmem_alloc().
@@ -899,7 +953,11 @@ kmem_free (void * addr)
     order = get_block_order(mp, addr);
 
     kmem_bytes_allocated_regular -= (1UL << order);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    buddy_free(0, mp, addr, order);
+#else
     buddy_free(mp, addr, order);
+#endif
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
 
 #if SANITY_CHECK_PER_OP
@@ -1307,6 +1365,11 @@ handle_meminfo (char * buf, void * priv)
 
     nk_vc_printf("\nInternal used %lu bytes.\nRegular used %lu bytes, used-peak %lu bytes.\n\n",
         used_internal, used_regular, kmem_bytes_allocated_regular_peak);
+    for(int zi = 0; zi < ZJPLOG_SIZE; zi++) {
+        if(zjplog[zi] != 0) {
+            nk_vc_printf("[%d] %lx %lu: %lx %lx\n",zi, zjplog[zi], zjplog0[zi], zjplog1[zi], zjplog2[zi]);
+        }
+    }
     return 0;
 /*    
     uint64_t num = kmem_num_pools();

@@ -26,6 +26,33 @@
 #include <nautilus/naut_types.h>
 #include <nautilus/spinlock.h>
 
+#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+/* CAPACITY_FACTOR:
+ *  Each order must have its capacity
+ *   >= (CAPACITY_FACTOR * allocated).
+ *  The larget this factor is, the more aggressive
+ *  the prefetching is.
+ */
+#define CAPACITY_FACTOR  ((double)(1))
+
+#define HARD_PREFETCH_TRIES 10 // when malloc return NULL, try 10 times to fetch memory
+
+struct block_freelist {
+    struct list_head    link;
+    size_t              allocated;
+    size_t              capacity;
+};
+
+void buddy_prefetch_init (void (*func)());
+
+struct buddy_memzone;
+
+int hard_prefetch(struct buddy_memzone*);
+#endif
+
+
 struct buddy_memzone {
     ulong_t     max_order;      /* max size of memory pool = 2^max_order */
     ulong_t     min_order;      /* minimum allocatable block size */
@@ -36,10 +63,15 @@ struct buddy_memzone {
 
     ulong_t     num_pools;
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    struct block_freelist * avail;
+    ulong_t  mem_dynamic_inprogress;
+#else
     struct list_head * avail;   /* one free list for each block size,
                                  * indexed by block order:
                                  *   avail[i] = free list of 2^i 
                                  */
+#endif
 
     spinlock_t  lock;           /* For now we will lock all zone operations...
                                  *   Hopefully this does not cause a performance 
@@ -132,7 +164,11 @@ int zone_mem_show(struct  buddy_memzone * zone);
 
 inline ulong_t get_block_order (struct buddy_mempool *mp, void *block);
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+void buddy_free (char is_new_mem, struct buddy_mempool * mp, void * addr, ulong_t order);
+#else
 void buddy_free (struct buddy_mempool * mp, void * addr, ulong_t order);
+#endif
 void * buddy_alloc (struct buddy_memzone * zone, ulong_t order);
 
 int  buddy_sanity_check(struct buddy_mempool *mp);

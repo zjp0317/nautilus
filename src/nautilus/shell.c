@@ -525,9 +525,16 @@ shell_add_cmd_to_hist (struct shell_cmd_state * state, char * buf)
 static void
 pisces_task_thread (void * in, void ** out)
 {
+    struct shell_thread_arg {
+        struct shell_cmd * cmd;
+        char buf[56];
+    };
+    struct shell_thread_arg * t_arg = (struct shell_thread_arg*)in;
+    struct shell_cmd * cmd = t_arg->cmd;
     // this is a test routine just for memcached server
-    struct shell_cmd *cmd = (struct shell_cmd*)in;
-    cmd->impl->handler(NULL, cmd->priv_data);
+    cmd->impl->handler(t_arg->buf, cmd->priv_data);
+
+    kmem_free(t_arg);
     return;
 }
 #endif
@@ -557,8 +564,16 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
 #ifdef NAUT_CONFIG_PISCES
         if(0 == strcmp(cmd_buf, "memcached")) {
             // specific for memcached
+            struct shell_thread_arg {
+                struct shell_cmd * cmd;
+                char buf[56];
+            };
+            struct shell_thread_arg *t_arg = kmem_mallocz_internal(sizeof(struct shell_thread_arg));
+            t_arg->cmd = cmd;
+            strncpy(t_arg->buf, buf, 56);
+
             nk_thread_id_t tid;
-            if((ret = nk_thread_start(pisces_task_thread, (void*)cmd, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
+            if((ret = nk_thread_start(pisces_task_thread, (void*)t_arg, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
                 printk("Failed to launch a task thread for memcached server\n");
             }
             nk_thread_name(tid, "memcached");

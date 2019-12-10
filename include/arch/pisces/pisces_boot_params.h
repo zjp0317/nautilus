@@ -6,6 +6,7 @@
 #define _PISCES_BOOT_PARAMS_H_
 
 typedef unsigned long long u64;
+typedef unsigned int u32;
 typedef unsigned char u8;
 
 #define PISCES_MAGIC 0x000FE110
@@ -100,7 +101,12 @@ struct pisces_boot_params {
     u64 block_size;
 
     // prefetch
-    //u64 prefetch_info;
+    u64 prefetch_info;
+    u32 host_mem_apic;
+    u32 host_mem_vector;
+    u32 host_mem_irq;
+    //u32 new_mem_blocks;
+    //u64 new_mem_range[0];
 } __attribute__((packed));
 
 extern struct pisces_boot_params *pisces_boot_params;

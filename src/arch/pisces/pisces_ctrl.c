@@ -75,13 +75,12 @@ cmd_handler(u8    * data,
         case ENCLAVE_CMD_ADD_MEM: {
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
             printk("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
-            // zjp: TODO this is just a test that adds to domian 0. Need to support any domain
             struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
             ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
                 printk("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
-#if 1 // test codes to verify the buddy states 
+#if 0 // test codes to verify the buddy states 
             zone_mem_show(numa_info->domains[0]->zone);
             char* ptr_prev_1 = kmem_malloc( 64*1024*1024);
             char* ptr_prev_2 = kmem_malloc( 32*1024*1024);
@@ -108,7 +107,7 @@ cmd_handler(u8    * data,
             printk("freed 64MB pool\n");
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("expected: Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                printk("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             zone_mem_show(numa_info->domains[0]->zone);
 
