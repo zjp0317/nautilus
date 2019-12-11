@@ -10,6 +10,7 @@
 #define TCP_RCV_SCALE                   11 // 0xffff << e > TCP_WND 
 #define MEMP_MEM_MALLOC 1
 #define PBUF_POOL_SIZE                  16 // * BUFSIZE(~TCP_MSS) should > TCP_WND
+#define MEMP_NUM_NETCONN                5
 
 // We don't need v6
 #define LWIP_IPV6 0 // zjp 0
