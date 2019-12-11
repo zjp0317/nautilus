@@ -278,6 +278,8 @@ recv_tcp(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     len = 0;
   }
 
+
+
   if (sys_mbox_trypost(&conn->recvmbox, p) != ERR_OK) {
     /* don't deallocate p: it is presented to us later again from tcp_fasttmr! */
     return ERR_MEM;
@@ -692,6 +694,12 @@ netconn_alloc(enum netconn_type t, netconn_callback callback)
 #endif
 
 #if LWIP_TCP
+
+// zjp fix, since we don't use calloc
+#if MEMP_MEM_MALLOC
+    conn->acceptmbox.mq = NULL;
+#endif
+
   sys_mbox_set_invalid(&conn->acceptmbox);
 #endif
   conn->state        = NETCONN_NONE;
