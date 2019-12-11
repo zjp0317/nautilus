@@ -4,6 +4,12 @@
 // zjp
 #define NAUT_CONFIG_PISCES_SHORT_LWIP 1
 #define SO_REUSE 1
+#define TCP_MSS         1460
+#define TCP_WND         0x6000000 // default in ubuntu tcp_rmem is 4096  87380   6291456 
+#define LWIP_WND_SCALE                  1
+#define TCP_RCV_SCALE                   11 // 0xffff << e > TCP_WND 
+#define MEMP_MEM_MALLOC 1
+#define PBUF_POOL_SIZE                  16 // * BUFSIZE(~TCP_MSS) should > TCP_WND
 
 // We don't need v6
 #define LWIP_IPV6 0 // zjp 0
