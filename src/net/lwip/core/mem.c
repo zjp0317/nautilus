@@ -67,7 +67,9 @@
 #endif
 
 void* calloc(mem_size_t count, mem_size_t size){
-	void* p = mallocz(count*size);
+	void* p = kmem_mallocz_internal(count*size);
+	//void* p = mallocz(count*size);
+
     // zjp use mallocz
     /*
 	if(p!=NULL){
@@ -110,7 +112,7 @@ mem_trim(void *mem, mem_size_t size)
 #define mem_clib_free free
 #endif
 #ifndef mem_clib_malloc
-#define mem_clib_malloc malloc
+#define mem_clib_malloc kmem_malloc_internal// zjp malloc
 #endif
 #ifndef mem_clib_calloc
 #define mem_clib_calloc calloc

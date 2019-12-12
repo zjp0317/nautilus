@@ -23,6 +23,7 @@ double malloccost = 0;
 double freecost = 0;
 double getcost = 0;
 double setcost = 0;
+double zjpss = 0;
 uint64_t zjpflag = 0;
 static double readcost = 0;
 static double writecost= 0;
@@ -74,7 +75,6 @@ ssize_t memcached_tcp_read(conn *c, void *buf, size_t count) {
     double starttime = gettime();
     ssize_t ret = read(c->sfd, buf, count);
     readcost +=  gettime() - starttime;
-    //fprintf(stderr, "read cost %lf\n", gettime() - starttime); 
     return ret;
 #else
     return read(c->sfd, buf, count);
@@ -87,7 +87,6 @@ ssize_t memcached_tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
     double starttime = gettime();
     ssize_t ret = sendmsg(c->sfd, msg, flags);
     writecost +=  gettime() - starttime;
-    //fprintf(stderr, "send cost %lf\n", gettime() - starttime); 
     return ret;
 #else
     return sendmsg(c->sfd, msg, flags);
@@ -559,13 +558,15 @@ static enum try_read_result try_read_network(conn *c) {
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
             if (!new_rbuf) {
                 c->rbytes = 0; /* ignore what we read */
-                return -1;
+                fprintf(stderr, "%s: failed to realloc, current size %lu\n", __FUNCTION__, c->rsize); // zjp
+                return READ_MEMORY_ERROR;
             }
             c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
         }
 
         int avail = c->rsize - c->rbytes;
+        //fprintf(stderr, "%s: current size %lu avail %d\n", __FUNCTION__, c->rsize, avail); // zjp
 #ifdef __Nautilus__
         res = c->nk_read(c, c->rbuf + c->rbytes, avail);
 #else
@@ -601,6 +602,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 
     item *new_it = NULL;
     uint32_t flags;
+
 
     if (comm == NREAD_CAS) {
         /* validate cas operation */
@@ -716,6 +718,18 @@ static int process_bin_set(conn *c) {
 
     c->item = it;
 
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
+    c->ritem = ITEM_data(it);
+#endif
+
+    strncpy(c->ritem, key+nkey, vlen); // no support for CHUNKED now
+
     // now handle the value part
     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
 
@@ -782,6 +796,49 @@ static int process_bin_get(conn *c) {
     it = item_get(key, nkey, c, DO_UPDATE);
 
     if(it) {
+#ifdef __Nautilus__
+        /*
+         * Due to the outdated lwip version supported in nautilus,
+         * herein, use send() instead of sendmsg(), to compact all data into a single iov.
+         * In our experiment, here is the only place that we may have multiple "iov"s.
+         * This is not a clean fix, but harmless regarding our purpose
+         */
+
+        int size = it->nbytes - 2 + 28; // unpacked sizeof(protocol_binary_response_get);
+        if(size > c->wsize) {
+            // ok... wbuf is too small
+            char* tmp_buf = realloc(c->wbuf, size);
+            if(tmp_buf == NULL) {
+                fprintf(stderr, "%s: realloc wbuf failed! wsize %d new size %d\n",
+                    c->wsize, size);
+                return -1;
+            }
+            c->wbuf = tmp_buf;
+            c->wsize = size;
+            rsp = (protocol_binary_response_get*)c->wbuf;
+        }
+        // use the same code to initialize head, though we won't use msglist
+        uint16_t keylen = 0;
+        uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
+        add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
+
+        rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
+        FLAGS_CONV(it, rsp->message.body.flags);
+        rsp->message.body.flags = htonl(rsp->message.body.flags);
+        //add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
+        
+        //add_iov(c, ITEM_data(it), it->nbytes - 2);
+        // we don't have CHUNKED cases 
+        //memcpy(c->wbuf + sizeof(protocol_binary_response_get), ITEM_data(it), it->nbytes - 2);
+        memcpy(c->wbuf + 28 ,ITEM_data(it), it->nbytes - 2);
+        
+        int res = c->nk_write(c, c->wbuf, size);
+        if(res < size) {
+            fprintf(stderr, "%s: lwip_write return %d (less than %d)!!\n", res, size);
+        }
+        return 0;
+
+#else
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
@@ -801,6 +858,7 @@ static int process_bin_get(conn *c) {
         //conn_set_state(c, conn_mwrite);
         //printf("item get ok %p for cmd %d\n", it, c->cmd);
         return handle_conn_mwrite(c);
+#endif
     } else {
         //printf("item get NULL for cmd %d\n", c->cmd);
         write_bin_miss_response(c, NULL, 0);
@@ -882,6 +940,7 @@ static int process_cmd_binary(conn *c) {
         /* clear the returned cas value */
         c->cas = 0;
 
+        //fprintf(stderr, "cmd %x\n", c->cmd);// zjp
         switch(c->cmd) {
             case PROTOCOL_BINARY_CMD_SETQ:
                 c->cmd = PROTOCOL_BINARY_CMD_SET;
@@ -932,7 +991,7 @@ static int process_cmd_binary(conn *c) {
         c->rcurr += offset; 
         c->rbytes -= offset; 
     }
-    //printf(" rcurr %p rend %p\n", c->rcurr, rend);
+    //printf(" rbuf %p rcurr %p rbytes %lu\n", c->rbuf, c->rcurr, c->rbytes);
     return ret;
 }
 
@@ -957,6 +1016,7 @@ static void reset_cmd_handler(conn *c) {
 }
 
 void drive_machine(conn *c) {
+    zjpflag = 1; // zjp
     while (1) { // conn loop
         /* don't switch to other conn
         if(--nreqs <= 0) {
@@ -983,7 +1043,7 @@ void drive_machine(conn *c) {
             printf("Close connection %p socket %d\n", c, c->sfd);
             conn_close(c);
 #if ZJP_TIME
-            //zjpflag = 0;
+            zjpflag = 0;
             fprintf(stderr, "Close at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf get %lf set %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost, getcost, setcost);
 #endif
             break;
@@ -1008,7 +1068,6 @@ int main() {
     size_t maxbytes = 64*1024*1024UL;;
 #endif
     
-    zjpflag = 1;
     settings.verbose = 1;//2;
     settings.maxconns = 1024;
 

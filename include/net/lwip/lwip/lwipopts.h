@@ -5,12 +5,16 @@
 #define NAUT_CONFIG_PISCES_SHORT_LWIP 1
 #define SO_REUSE 1
 #define TCP_MSS         1460
-#define TCP_WND         0x6000000 // default in ubuntu tcp_rmem is 4096  87380   6291456 
+#define TCP_WND         0x600000 // default in ubuntu tcp_rmem is 4096  87380   6291456 
 #define LWIP_WND_SCALE                  1
-#define TCP_RCV_SCALE                   11 // 0xffff << e > TCP_WND 
+#define TCP_RCV_SCALE                   7 // 0xffff << e > TCP_WND 
 #define MEMP_MEM_MALLOC 1
-#define PBUF_POOL_SIZE                  16 // * BUFSIZE(~TCP_MSS) should > TCP_WND
+//#define PBUF_POOL_SIZE                  16 // * BUFSIZE(~TCP_MSS) should > TCP_WND
 #define MEMP_NUM_NETCONN                5
+#define MEMP_NUM_TCP_PCB                5
+#define MEMP_NUM_TCP_PCB_LISTEN         8
+#define TCP_SND_BUF                     (64 * TCP_MSS)
+//#define MEMP_NUM_TCP_SEG                256
 
 // We don't need v6
 #define LWIP_IPV6 0 // zjp 0

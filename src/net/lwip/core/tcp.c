@@ -85,8 +85,8 @@
 #endif /* LWIP_TCP_KEEPALIVE */
 
 /* As initial send MSS, we use TCP_MSS but limit it to 536. */
-#if TCP_MSS > 536
-#define INITIAL_MSS 536
+#if TCP_MSS > 1024 // zjp 536
+#define INITIAL_MSS 1024 // 536
 #else
 #define INITIAL_MSS TCP_MSS
 #endif
@@ -802,6 +802,7 @@ tcp_recved(struct tcp_pcb *pcb, u16_t len)
     pcb->state != LISTEN);
 
   pcb->rcv_wnd += len;
+
   if (pcb->rcv_wnd > TCP_WND_MAX(pcb)) {
     pcb->rcv_wnd = TCP_WND_MAX(pcb);
   } else if (pcb->rcv_wnd == 0) {
