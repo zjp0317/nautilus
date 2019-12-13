@@ -283,6 +283,10 @@ init (unsigned long mbd,
     extern addr_t pisces_boot_ap;
     pisces_boot_params->launch_code_target_addr = (addr_t)&pisces_boot_ap;
 
+    // get the real kernel size: Important!!
+    extern addr_t _data_end;
+    pisces_boot_params->kernel_size = (addr_t)&_data_end;
+
     pisces_console_init();
 
     // We ask for 2 memory blocks at least.
@@ -386,10 +390,8 @@ init (unsigned long mbd,
      * allocated in the boot mem allocator are kept reserved */
     mm_boot_kmem_init();
 
-#ifdef NAUT_CONFIG_PISCES
     /* init kmem allocator on all regions */
     nk_kmem_init_all();
-#endif
 
 #ifdef NAUT_CONFIG_ENABLE_BDWGC
     // Bring up the BDWGC garbage collector if enabled

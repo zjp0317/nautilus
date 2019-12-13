@@ -69,7 +69,11 @@ int nk_dev_deinit()
 struct nk_dev *nk_dev_register(char *name, nk_dev_type_t type, uint64_t flags, struct nk_dev_int *inter, void *state)
 {
     STATE_LOCK_CONF;
+#ifdef NAUT_CONFIG_PISCES
+    struct nk_dev *d = kmem_malloc_internal(sizeof(*d));
+#else
     struct nk_dev *d = malloc(sizeof(*d));
+#endif
     char buf[NK_WAIT_QUEUE_NAME_LEN];
     
     if (!d) {
