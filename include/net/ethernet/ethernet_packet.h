@@ -43,6 +43,18 @@ typedef uint8_t ethernet_mac_addr_t[6];
 // gruesome hack
 #define MAX_ETHERNET_PACKET_LEN 2048
 
+#ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
+#ifdef MAX_ETHERNET_PACKET_DATA_LEN
+#undef MAX_ETHERNET_PACKET_DATA_LEN
+#endif
+#define MAX_ETHERNET_PACKET_DATA_LEN  2034
+
+#ifdef MAX_ETHERNET_PACKET_LEN
+#undef MAX_ETHERNET_PACKET_LEN
+#endif
+#define MAX_ETHERNET_PACKET_LEN (ETHERNET_HEADER_LEN + 14)
+#endif
+
 typedef struct nk_ethernet_packet {
     struct list_head node;   // used internally for free packets, can be used externally for allocated packets
 

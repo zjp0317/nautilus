@@ -14,7 +14,13 @@
 #define MEMP_NUM_TCP_PCB                5
 #define MEMP_NUM_TCP_PCB_LISTEN         8
 #define TCP_SND_BUF                     (64 * TCP_MSS)
+#define TCP_SNDLOWAT                    (TCP_SND_BUF / 2)
 //#define MEMP_NUM_TCP_SEG                256
+#define MEM_ALIGNMENT                   4
+//#define CHECKSUM_GEN_TCP                0
+#define CHECKSUM_CHECK_TCP                0
+//#define CHECKSUM_GEN_IP                 0
+#define CHECKSUM_CHECK_IP                 0
 
 // We don't need v6
 #define LWIP_IPV6 0 // zjp 0
