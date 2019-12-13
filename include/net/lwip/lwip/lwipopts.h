@@ -3,6 +3,7 @@
 
 // zjp
 #define NAUT_CONFIG_PISCES_SHORT_LWIP 1
+#define LWIP_SO_LINGER                1  
 #define SO_REUSE 1
 #define TCP_MSS         1460
 #define TCP_WND         0x600000 // default in ubuntu tcp_rmem is 4096  87380   6291456 
@@ -18,9 +19,9 @@
 //#define MEMP_NUM_TCP_SEG                256
 #define MEM_ALIGNMENT                   4
 //#define CHECKSUM_GEN_TCP                0
-#define CHECKSUM_CHECK_TCP                0
+//#define CHECKSUM_CHECK_TCP                0
 //#define CHECKSUM_GEN_IP                 0
-#define CHECKSUM_CHECK_IP                 0
+//#define CHECKSUM_CHECK_IP                 0
 
 // We don't need v6
 #define LWIP_IPV6 0 // zjp 0

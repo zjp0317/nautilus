@@ -411,14 +411,15 @@ static int server_socket(int port) {
         printf("Failed to set SO_KEEPALIVE err %d\n", errno);
         return -1;
     }
-#if 0
-    if(0 != setsockopt(acc_sock, SOL_SOCKET, SO_LINGER, (void *)&flags, sizeof(flags))) {
+#if 1
+    struct linger ling = {0, 0};
+    if(0 != setsockopt(acc_sock, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling))) {
         printf("Failed to set SO_LINGER err %d\n", errno);
         return -1;
     }
 #endif
-#if 0
-    if(0 != setsockopt(acc_sock, SOL_SOCKET, TCP_NODELAY, (void *)&flags, sizeof(flags))) {
+#if 1
+    if(0 != setsockopt(acc_sock, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags))) {
         printf("Failed to set TCP_NODELAY err %d\n", errno);
         return -1;
     }
