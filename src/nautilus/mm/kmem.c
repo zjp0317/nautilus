@@ -133,13 +133,6 @@ static struct buddy_memzone * internal_zone = NULL;
 static uint64_t internal_mem_start = 0;
 static uint64_t internal_mem_end = 0;
 
-#define ZJPLOG_SIZE 1024
-static uint64_t zjplog[ZJPLOG_SIZE];
-static uint64_t zjplog0[ZJPLOG_SIZE];
-static uint64_t zjplog1[ZJPLOG_SIZE];
-static uint64_t zjplog2[ZJPLOG_SIZE];
-static int zjpindex = 0;
-
 /* zjp:
  * Init the unit hash map with capacity = KMEM_UNIT_NUM
  */
@@ -800,18 +793,9 @@ retry:
     KMEM_DEBUG("malloc succeeded: size %lu order %lu -> 0x%lx\n",size, order, block);
 
     if (zero) { 
-        //printk("malloc succeeded: size %lu order %lu -> 0x%lx blockorder %lu\n",size, order, block, ((struct block*)block)->order);
         memset(block,0,size);
-        /*
-        size_t n = size;
-        while (n--) {
-            if(order <2)
-            printk("zjp here\n");
-        }
-         */
-        //memset(block,0,1ULL << ((struct block*)block)->order);
     }
-    
+
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 
         panic("KMEM HAS GONE INSANE AFTER MALLOC\n");
@@ -1365,11 +1349,6 @@ handle_meminfo (char * buf, void * priv)
 
     nk_vc_printf("\nInternal used %lu bytes.\nRegular used %lu bytes, used-peak %lu bytes.\n\n",
         used_internal, used_regular, kmem_bytes_allocated_regular_peak);
-    for(int zi = 0; zi < ZJPLOG_SIZE; zi++) {
-        if(zjplog[zi] != 0) {
-            nk_vc_printf("[%d] %lx %lu: %lx %lx\n",zi, zjplog[zi], zjplog0[zi], zjplog1[zi], zjplog2[zi]);
-        }
-    }
     return 0;
 /*    
     uint64_t num = kmem_num_pools();

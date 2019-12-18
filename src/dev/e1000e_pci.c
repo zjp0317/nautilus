@@ -188,6 +188,8 @@
 #define E1000E_IMS_OFFSET     0x000D0  /* interrupt mask set/read register */
 #define E1000E_IMC_OFFSET     0x000D8  /* interrupt mask clear */
 #define E1000E_TIDV_OFFSET    0x03820  /* transmit interrupt delay value r/w */
+// zjp
+#define E1000E_ITR_OFFSET     0x000C4  /* Throttling */ 
 
 #define E1000E_AIT_OFFSET     0x00458  /* Adaptive IFS Throttle r/w */
 #define E1000E_TADV_OFFSET    0x0382C  /* transmit absolute interrupt delay value */ 
@@ -758,6 +760,9 @@ static int e1000e_send_packet(uint8_t* packet_addr,
   // TXD_CMD(TXD_TAIL).bit.ide = 0;
   // // report the status of the descriptor
   // TXD_CMD(TXD_TAIL).bit.rs = 1;
+
+  // zjp
+  //TXD_CMD(TXD_TAIL).byte = E1000E_TXD_CMD_EOP | E1000E_TXD_CMD_IFCS | E1000E_TXD_CMD_RS | E1000E_TXD_CMD_IDE; 
   TXD_CMD(TXD_TAIL).byte = E1000E_TXD_CMD_EOP | E1000E_TXD_CMD_IFCS | E1000E_TXD_CMD_RS; 
 
   // increment transmit descriptor list tail by 1
@@ -1050,9 +1055,12 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
 #if 1 // read multiple pkgs upon each interrupt     
   if (mask_int & (E1000E_ICR_TXDW | E1000E_ICR_TXQ0)) {
       which_op = op_rx;
-
+        
+        // zjp
+        int cc = 0;
       while (TXD_STATUS(TXD_PREV_HEAD).dd & 1)  // keep checking DD (hardware is done with i)
       {
+
           e1000e_unmap_callback(state->tx_map,
                   (uint64_t **)&callback,
                   (void **)&context);
@@ -1072,16 +1080,8 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
           }
       }
   }
-  if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0 | E1000E_ICR_RXDMT0)) {
-    extern uint64_t zjpflag;
-    extern double lwipcost;
-    extern double nk_sched_get_realtime_secs();
-    static double ss = 0;
-    if(zjpflag > 0) {
-        if(ss != 0 ) lwipcost += nk_sched_get_realtime_secs() - ss ;
-        ss = nk_sched_get_realtime_secs(); 
-    }
-  //if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0)) {
+  if(mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0 )) {
+  //if (mask_int & (E1000E_ICR_RXT0 | E1000E_ICR_RXO | E1000E_ICR_RXQ0 | E1000E_ICR_RXDMT0)) {
       which_op = op_rx;
       // receive all available per interrupt
       while (RXD_STATUS(RXD_PREV_HEAD).dd & 1) { // keep checking DD (hardware is done with i)
@@ -1094,15 +1094,14 @@ static int e1000e_irq_handler(excp_entry_t * excp, excp_vec_t vec, void *s)
               status = NK_NET_DEV_STATUS_ERROR;
           }
 
-
+          RXD_STATUS(RXD_PREV_HEAD).dd = 0;
+          RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
 
           if (callback) {
               DEBUG("irq_handler fn: invoke callback function callback: 0x%p\n", callback);
               callback(status, context);
           }
 
-          RXD_STATUS(RXD_PREV_HEAD).dd = 0;
-          RXD_PREV_HEAD = RXD_INC(1, RXD_PREV_HEAD);
       }
 
   }
@@ -1405,6 +1404,8 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
 
         WRITE_MEM(state, E1000E_CTRL_OFFSET, ctrl_reg);
 
+
+
         DEBUG("init fn: e1000e ctrl = 0x%08x expects 0x%08x\n",
                 READ_MEM(state, E1000E_CTRL_OFFSET),
                 ctrl_reg);
@@ -1503,18 +1504,18 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
 
             // now configure device
             // interrupt delay value = 0 -> does not delay
-            //WRITE_MEM(state, E1000E_TIDV_OFFSET, 0);
-            WRITE_MEM(state, E1000E_TIDV_OFFSET, 8); // zjp
+            WRITE_MEM(state, E1000E_TIDV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_TIDV_OFFSET, 0x40); // zjp
             // receive interrupt delay timer = 0
             // -> interrupt when the device receives a package
-            //WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD);
-            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD | 0x20); // zjp
+            WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD);
+            //WRITE_MEM(state, E1000E_RDTR_OFFSET_NEW, E1000E_RDTR_FPD | 0x0); // zjp
             DEBUG("init fn: RDTR new 0x%08x alias 0x%08x expect 0x%08x\n",
                     READ_MEM(state, E1000E_RDTR_OFFSET_NEW),
                     READ_MEM(state, E1000E_RDTR_OFFSET_ALIAS),
                     E1000E_RDTR_FPD);
-            //WRITE_MEM(state, E1000E_RADV_OFFSET, 0);
-            WRITE_MEM(state, E1000E_RADV_OFFSET, 0x20); // zjp
+            WRITE_MEM(state, E1000E_RADV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_RADV_OFFSET, 0x80); // zjp
 
             // enable only transmit descriptor written back, receive interrupt timer
             // rx queue 0
@@ -1529,6 +1530,9 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
             // after the interrupt is turned on, the interrupt handler is called
             // due to the transmit descriptor queue empty.
 
+        // zjp try throttling
+        //WRITE_MEM(state, E1000E_ITR_OFFSET, 10000);
+
             uint32_t icr_reg = READ_MEM(state, E1000E_ICR_OFFSET);
             // e1000e_interpret_ims(state);
             DEBUG("init fn: ICR before writting with 0xffffffff\n");
@@ -1539,8 +1543,8 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
 
             // optimization 
             WRITE_MEM(state, E1000E_AIT_OFFSET, 0);
-            //WRITE_MEM(state, E1000E_TADV_OFFSET, 0);
-            WRITE_MEM(state, E1000E_TADV_OFFSET, 8); // zjp
+            WRITE_MEM(state, E1000E_TADV_OFFSET, 0);
+            //WRITE_MEM(state, E1000E_TADV_OFFSET, 0x40); // zjp
             DEBUG("init fn: end init fn --------------------\n");
 
             INFO("%s operational\n",state->name);

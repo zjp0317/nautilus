@@ -183,8 +183,17 @@ static int create_worker(void *(*func)(void *), void *arg) {
     int             ret;
 
     pthread_attr_init(&attr);
+    
+#ifdef __Nautilus__
+    // zjp manually bind cpu
+    static int cpu = -1;
+    if(cpu < 0) cpu = nautilus_info.sys.num_cpus;
 
+    if ((ret = nk_thread_start(func, arg, 0, 0, TSTACK_DEFAULT,  &((NK_MEMCACHED_THREAD*)arg)->thread_id,
+        --cpu)) != 0) {
+#else
     if ((ret = pthread_create(&((NK_MEMCACHED_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
+#endif
         fprintf(stderr, "Can't create thread: %s\n",
                 strerror(ret));
         return -1;

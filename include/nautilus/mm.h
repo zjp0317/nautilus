@@ -96,13 +96,6 @@ int nk_kmem_init_all(void);
 #define INTERNAL_MEM_SIZE   (2 * PISCES_MEM_UNIT) // 256MB reserved for internal usage
 #define REGULAR_MEM_SIZE    (PISCES_MEM_UNIT) // 128MB for regular usage: runtime, apps, etc.
 #define MINIMUM_MEM_SIZE    (INTERNAL_MEM_SIZE + REGULAR_MEM_SIZE) // At least INTERNAL_MEM_SIZE + 128MB for booting nautilus-pisces
-
-//#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
-
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-#define PREFETCH_THRESHOLD  (0.75)  // send async request for more memory if current mem usage >= 75%    
-#define DEFAULT_PREFETCH_SIZE   (2 * PISCES_MEM_UNIT) // round up of (PISCES_MEM_UNIT / 0.75)
-#endif
 #endif
 
 /* zjp: keep the old get_base_zone and get_region for lua runtime */

@@ -338,6 +338,10 @@ do_memp_malloc_pool_fn(const struct memp_desc *desc, const char* file, const int
     return ((u8_t*)memp + MEMP_SIZE);
   } else {
     LWIP_DEBUGF(MEMP_DEBUG | LWIP_DBG_LEVEL_SERIOUS, ("memp_malloc: out of memory in pool %s\n", desc->desc));
+    // zjp
+    INFO_PRINT("memp_malloc: out of memory for size %lu\n", desc->size);
+#include <nautilus/backtrace.h>
+    BACKTRACE(nk_vc_printf, 5);
 #if MEMP_STATS
     desc->stats->err++;
 #endif

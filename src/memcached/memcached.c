@@ -16,32 +16,8 @@
 #include "memcached.h"
 #endif
 
-#define ZJP_TIME 1
-#if ZJP_TIME
-double lwipcost = 0;
-double malloccost = 0;
-double freecost = 0;
-double getcost = 0;
-double setcost = 0;
-double zjpss = 0;
-uint64_t zjpflag = 0;
-static double readcost = 0;
-static double writecost= 0;
-static double gettime() {
-#if 0
-    struct timeval t;
-    gettimeofday(&t,NULL);
-    return (double)t.tv_sec+t.tv_usec*1e-6;
-#else
-    return nk_sched_get_realtime_secs();
-#endif
-}
-#endif
-
-
 struct settings settings;
 static bool stop_main_loop = false;
-//volatile rel_time_t current_time; 
 
 conn **conns;
 
@@ -71,26 +47,11 @@ enum transmit_result {
 
 ssize_t memcached_tcp_read(conn *c, void *buf, size_t count) { 
     assert (c != NULL);
-#if ZJP_TIME
-    double starttime = gettime();
-    ssize_t ret = read(c->sfd, buf, count);
-    readcost +=  gettime() - starttime;
-    return ret;
-#else
     return read(c->sfd, buf, count);
-#endif
 }
 ssize_t memcached_tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
     assert (c != NULL);
-
-#if ZJP_TIME
-    double starttime = gettime();
-    ssize_t ret = sendmsg(c->sfd, msg, flags);
-    writecost +=  gettime() - starttime;
-    return ret;
-#else
     return sendmsg(c->sfd, msg, flags);
-#endif
 }   
 ssize_t memcached_tcp_write(conn *c, void *buf, size_t count) {
     assert (c != NULL);
@@ -253,17 +214,14 @@ static enum transmit_result transmit(conn *c) {
                 m->msg_iovlen--;
                 m->msg_iov++;
             }
-            /* Might have written just part of the last iovec entry;
-               adjust it so the next write will do the rest. */
             if(res > 0) {
                 m->msg_iov->iov_base = (caddr_t)m->msg_iov->iov_base + res;
                 m->msg_iov->iov_len -= res;
+                continue;
             }
-        }
-        if (res == -1
+        } else if (res == -1
                 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
-            printf("%s sendmsg error %d\n", __FUNCTION__, errno);
-            // should close
+            fprintf(stderr, "%s sendmsg error %d\n", __FUNCTION__, errno);
             return TRANSMIT_HARD_ERROR;
         }
         if (c->msgcurr < c->msgused && c->msglist[c->msgcurr].msg_iovlen == 0) {
@@ -335,16 +293,7 @@ static int write_bin_error(conn *c, protocol_binary_response_status err,
     if (len > 0) {
         add_iov(c, errstr, len);
     }
-    //conn_set_state(c, conn_mwrite);
     return handle_conn_mwrite(c);
-/*
-    if(swallow > 0) {
-        c->sbytes = swallow;
-        c->write_and_go = conn_swallow;
-    } else {
-        c->write_and_go = conn_new_cmd;
-    }
-    */
 }
 
 /* Form and send a response to a command over the binary protocol */
@@ -354,11 +303,8 @@ static int write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) 
         if(dlen > 0) {
             add_iov(c, d, dlen);
         }
-        //conn_set_state(c, conn_mwrite);
         return handle_conn_mwrite(c);
-        //c->write_and_go = conn_new_cmd;
     } else {
-        //conn_set_state(c, conn_new_cmd);
         return 0;
     }
 }
@@ -369,8 +315,6 @@ static int write_bin_miss_response(conn *c, char *key, size_t nkey) {
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0, nkey, nkey);
         memcpy(ofs, key, nkey);
         add_iov(c, ofs, nkey);
-        //conn_set_state(c, conn_mwrite);
-        //c->write_and_go = conn_new_cmd;
         return handle_conn_mwrite(c);
     } else {
         return write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
@@ -391,46 +335,42 @@ static int server_socket(int port) {
     addr.sin_addr.s_addr = inet_addr(MEMCACHED_HOST);
 
     if ((acc_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        printf("Failed to connect socket on port %d\n", port);
+        fprintf(stderr, "Failed to connect socket on port %d\n", port);
         return -1;
     }
 
 #if 0
     if ((flags = fcntl(acc_sock, F_GETFL, 0)) < 0 ||
             fcntl(acc_sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-        printf("setting O_NONBLOCK");
+        fprintf(stderr, "setting O_NONBLOCK");
         close(acc_sock);
         return -1;
     }
 #endif
     if(0 != setsockopt(acc_sock, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags))) {
-        printf("Failed to set SO_REUSEADDR err %d\n", errno);
+        fprintf(stderr, "Failed to set SO_REUSEADDR err %d\n", errno);
         return -1;
     }
     if(0 != setsockopt(acc_sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags))) {
-        printf("Failed to set SO_KEEPALIVE err %d\n", errno);
+        fprintf(stderr, "Failed to set SO_KEEPALIVE err %d\n", errno);
         return -1;
     }
-#if 1
     struct linger ling = {0, 0};
     if(0 != setsockopt(acc_sock, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling))) {
-        printf("Failed to set SO_LINGER err %d\n", errno);
+        fprintf(stderr, "Failed to set SO_LINGER err %d\n", errno);
         return -1;
     }
-#endif
-#if 1
     if(0 != setsockopt(acc_sock, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags))) {
-        printf("Failed to set TCP_NODELAY err %d\n", errno);
+        fprintf(stderr, "Failed to set TCP_NODELAY err %d\n", errno);
         return -1;
     }
-#endif
     if(-1 == bind(acc_sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in))) {
-        printf("Failed to bind socket on port %d\n", port);
+        fprintf(stderr, "Failed to bind socket on port %d\n", port);
         return -1;
     }
 
     if(-1 == listen(acc_sock, 1024)) {
-        printf("Failed to listen socket on port %d err %d\n", port, errno);
+        fprintf(stderr, "Failed to listen socket on port %d err %d\n", port, errno);
         return -1;
     }
 
@@ -545,7 +485,7 @@ conn *conn_new(const int sfd, int read_buffer_size) {
 static enum try_read_result try_read_network(conn *c) {
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
-#if 1
+
     if (c->rcurr != c->rbuf) {
         if (c->rbytes != 0) {/* otherwise there's nothing to copy */
             //fprintf(stderr, "%s: rbytes %d\n", __FUNCTION__, c->rbytes); 
@@ -553,7 +493,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
         c->rcurr = c->rbuf;
     }
-#endif
+
     while (1) {
         if (c->rbytes >= c->rsize) {
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
@@ -567,7 +507,6 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        //fprintf(stderr, "%s: current size %lu avail %d\n", __FUNCTION__, c->rsize, avail); // zjp
 #ifdef __Nautilus__
         res = c->nk_read(c, c->rbuf + c->rbytes, avail);
 #else
@@ -576,7 +515,6 @@ static enum try_read_result try_read_network(conn *c) {
         if (res > 0) {
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
-            //printf("read %d bytes avail %d rbytes %d rsize %d\n", res, avail, c->rbytes, c->rsize);
             if (res == avail) {
                 continue;
             } else {
@@ -694,9 +632,9 @@ static int process_bin_set(conn *c) {
 
     if(it == NULL) {
         if (! item_size_ok(nkey, req->message.body.flags, vlen + 2)) {
-            printf("TOO_LARGE: nkey %d vlen+2 %d\n", nkey, vlen+2);
+            fprintf(stderr, "TOO_LARGE: nkey %d vlen+2 %d\n", nkey, vlen+2);
         } else {
-            printf("OUT_OF_MEMORY: nkey %d vlen+2 %d\n", nkey, vlen+2);
+            fprintf(stderr, "OUT_OF_MEMORY: nkey %d vlen+2 %d\n", nkey, vlen+2);
         }
 
         return 0; // TODO return value
@@ -709,7 +647,7 @@ static int process_bin_set(conn *c) {
             c->cmd = NREAD_SET;
             break;
         default:
-            printf("Receive unhandled cmd %d\n", c->cmd);
+            fprintf(stderr, "Receive unhandled cmd %d\n", c->cmd);
             assert(0);
     }
 
@@ -729,7 +667,7 @@ static int process_bin_set(conn *c) {
     c->ritem = ITEM_data(it);
 #endif
 
-    strncpy(c->ritem, key+nkey, vlen); // no support for CHUNKED now
+    memcpy(c->ritem, key+nkey, vlen); // no support for CHUNKED now
 
     // now handle the value part
     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
@@ -749,7 +687,6 @@ static int process_bin_set(conn *c) {
     }
 
     enum store_item_type res = store_item(it, c->cmd, c);
-    //printf("store item for cmd %d return %d\n", c->cmd, ret);
 
     switch (res) {
         case STORED:
@@ -802,20 +739,24 @@ static int process_bin_get(conn *c) {
          * Due to the outdated lwip version supported in nautilus,
          * herein, use send() instead of sendmsg(), to compact all data into a single iov.
          * In our experiment, here is the only place that we may have multiple "iov"s.
-         * This is not a clean fix, but harmless regarding our purpose
+         * This is not a clean fix, but is fine to our evaluation 
          */
 
         int size = it->nbytes - 2 + 28; // unpacked sizeof(protocol_binary_response_get);
-        if(size > c->wsize) {
+        int need_realloc = 0;
+        while(c->wsize < size) {
+            c->wsize *= 2; // c->wbuf is initial 2^11
+            need_realloc = 1;
+        }
+        if(need_realloc == 1) {
             // ok... wbuf is too small
-            char* tmp_buf = realloc(c->wbuf, size);
+            char* tmp_buf = realloc(c->wbuf, c->wsize);
             if(tmp_buf == NULL) {
-                fprintf(stderr, "%s: realloc wbuf failed! wsize %d new size %d\n",
-                    c->wsize, size);
+                fprintf(stderr, "%s: realloc wbuf failed for wsize %d size %d\n",
+                    __FUNCTION__, c->wsize, size);
                 return -1;
             }
             c->wbuf = tmp_buf;
-            c->wsize = size;
             rsp = (protocol_binary_response_get*)c->wbuf;
         }
         // use the same code to initialize head, though we won't use msglist
@@ -830,15 +771,13 @@ static int process_bin_get(conn *c) {
         
         //add_iov(c, ITEM_data(it), it->nbytes - 2);
         // we don't have CHUNKED cases 
-        //memcpy(c->wbuf + sizeof(protocol_binary_response_get), ITEM_data(it), it->nbytes - 2);
-        memcpy(c->wbuf + 28 ,ITEM_data(it), it->nbytes - 2);
+        memcpy(c->wbuf + 28,ITEM_data(it), it->nbytes - 2);
         
         int res = c->nk_write(c, c->wbuf, size);
         if(res < size) {
-            fprintf(stderr, "%s: lwip_write return %d (less than %d)!!\n", res, size);
+            fprintf(stderr, "%s: write return %d (less than %d)!!\n", __FUNCTION__, res, size);
         }
         return 0;
-
 #else
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
@@ -856,12 +795,10 @@ static int process_bin_get(conn *c) {
             add_chunked_item_iovs(c, it, it->nbytes - 2);
         }
 
-        //conn_set_state(c, conn_mwrite);
-        //printf("item get ok %p for cmd %d\n", it, c->cmd);
         return handle_conn_mwrite(c);
 #endif
     } else {
-        //printf("item get NULL for cmd %d\n", c->cmd);
+        fprintf(stderr, "item get NULL for cmd %d\n", c->cmd);
         write_bin_miss_response(c, NULL, 0);
     }
 
@@ -872,27 +809,9 @@ static int process_bin_get(conn *c) {
 static int process_cmd_binary(conn *c) {
     int ret = 0;
 
-#if 0
-    if(settings.verbose > 2) {
-        protocol_binary_request_header* req = (protocol_binary_request_header*)rcurr;
-        int ii;
-        fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
-        for (ii = 0; ii < sizeof(req->bytes); ++ii) {
-            if (ii % 4 == 0) {
-                fprintf(stderr, "\n<%d   ", c->sfd);
-            }
-            fprintf(stderr, " 0x%02x", req->bytes[ii]);
-        }
-        fprintf(stderr, "\n");
-        //req = (protocol_binary_request_header*)((char*)req + ntohl(req->request.bodylen) + 24); 
-    }
-#endif
-    //char* rend = c->rbuf + c->rbytes;
-    //while(c->rcurr < rend) {
     while(c->rbytes > sizeof(c->binary_header)) {
 
         protocol_binary_request_header* req = (protocol_binary_request_header*)c->rcurr;
-#if 1
         if(settings.verbose > 2) {
             int ii;
             fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
@@ -903,33 +822,29 @@ static int process_cmd_binary(conn *c) {
                 fprintf(stderr, " 0x%02x", req->bytes[ii]);
             }
             fprintf(stderr, "\n");
-            //req = (protocol_binary_request_header*)((char*)req + ntohl(req->request.bodylen) + 24); 
         }
-#endif
         c->binary_header = *req;
         c->binary_header.request.keylen = ntohs(req->request.keylen);
         c->binary_header.request.bodylen = ntohl(req->request.bodylen);
         c->binary_header.request.cas = ntohll(req->request.cas);
 
-        //fprintf(stderr, "keylen %d bodylen %d\n", c->binary_header.request.keylen, c->binary_header.request.bodylen);
-
         if(c->rbytes < c->binary_header.request.bodylen + sizeof(c->binary_header)) {
-            //fprintf(stderr, "rbytes %d current cmd body %dB header %luB\n",
-                //c->rbytes, c->binary_header.request.bodylen, sizeof(c->binary_header));
+            //fprintf(stderr, "rbytes %d current cmd body %dB header %luB, rbuf %p, rcurr %p, size %lx\n",
+              //  c->rbytes, c->binary_header.request.bodylen, sizeof(c->binary_header), c->rbuf, c->rcurr, c->rsize);
             // it may not be an error, wait for future data
             return 0;
-            //return -1;
         }
 
         if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
-            printf("Receive magic %x, expecting %x\n", c->binary_header.request.magic, PROTOCOL_BINARY_REQ);
+            fprintf(stderr, "Receive magic %x, expecting %x\n", c->binary_header.request.magic, PROTOCOL_BINARY_REQ);
             return -1;
         }
 
         c->msgcurr = 0;
         c->msgused = 0;
         c->iovused = 0;
-        // zjp this add_msghdr() seems redundant
+
+        // this add_msghdr() seems redundant
         if (add_msghdr(c) != 0) {
             fprintf(stderr, "SERVER_ERROR Out of memory allocating headers\n");
             return -1;
@@ -941,7 +856,6 @@ static int process_cmd_binary(conn *c) {
         /* clear the returned cas value */
         c->cas = 0;
 
-        //fprintf(stderr, "cmd %x\n", c->cmd);// zjp
         switch(c->cmd) {
             case PROTOCOL_BINARY_CMD_SETQ:
                 c->cmd = PROTOCOL_BINARY_CMD_SET;
@@ -953,51 +867,39 @@ static int process_cmd_binary(conn *c) {
                 //c->noreply = false;
                 break;
         }
-        //printf("Receive cmd %d\n", c->cmd);
-
-        // now we have received a SET or GET
-        //c->ritem = c->rbuf + sizeof(protocol_binary_request_header);
 
         switch(c->cmd) {
             case PROTOCOL_BINARY_CMD_SET:
             {
-                double ss = gettime();
                 ret = process_bin_set(c);
-                setcost += gettime() -ss;
                 break;
             }
             case PROTOCOL_BINARY_CMD_GET:
             {
-#if ZJP_TIME
-                if(zjpflag++ == 1)
-                    fprintf(stderr, "First Get at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf get %lf set %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost, getcost, setcost);
-#endif
-                double ss = gettime();
                 ret = process_bin_get(c);
-                getcost += gettime() -ss;
                 break;
             }
             default:
-                printf("Receive unhandled cmd %d\n", c->cmd);
+                fprintf(stderr, "Receive unhandled cmd %d\n", c->cmd);
                 return -1;
         }
 
         if(ret != 0) { // as long as one cmd is invalid, we directly return
-            printf("process bin cmd %d failed\n", c->cmd);
+            fprintf(stderr, "process bin cmd %d failed\n", c->cmd);
             return ret;
         }
 
         // proceed to next cmd
-        int offset = ntohl(req->request.bodylen) + 24;
+        int offset = c->binary_header.request.bodylen + 24;
         c->rcurr += offset; 
         c->rbytes -= offset; 
     }
-    //printf(" rbuf %p rcurr %p rbytes %lu\n", c->rbuf, c->rcurr, c->rbytes);
+    //fprintf(stderr, " rbuf %p rcurr %p rbytes %lu\n", c->rbuf, c->rcurr, c->rbytes);
     return ret;
 }
 
 static void conn_shrink(conn *c) {
-    // Don't shrink, we want to test large memory consumption
+    // Don't shrink, we want large memory consumption
 }
 
 static void reset_cmd_handler(conn *c) {
@@ -1017,7 +919,6 @@ static void reset_cmd_handler(conn *c) {
 }
 
 void drive_machine(conn *c) {
-    zjpflag = 1; // zjp
     while (1) { // conn loop
         /* don't switch to other conn
         if(--nreqs <= 0) {
@@ -1030,10 +931,10 @@ void drive_machine(conn *c) {
             continue; // keep working on this conn
         } else if(res == READ_DATA_RECEIVED) {
             // now all data is in c->rbuf
-            //printf("READ_DATA_RECEIVED\n");
+            //fprintf(stderr, "READ_DATA_RECEIVED\n");
             if(0 == process_cmd_binary(c)) {
                 // now cmd is processed correctly
-                //printf("process_cmd_binary succeeded\n");
+                //fprintf(stderr, "process_cmd_binary succeeded\n");
             } else {
                 fprintf(stderr, "process_cmd_binary failed\n");
             }
@@ -1041,12 +942,8 @@ void drive_machine(conn *c) {
             reset_cmd_handler(c); 
             continue;
         } else { // done with this conn
-            printf("Close connection %p socket %d\n", c, c->sfd);
+            fprintf(stderr, "Close connection %p socket %d\n", c, c->sfd);
             conn_close(c);
-#if ZJP_TIME
-            zjpflag = 0;
-            fprintf(stderr, "Close at %lf readcost %lf writecost %lf malloc %lf free %f lwip %lf get %lf set %lf\n", gettime(), readcost, writecost, malloccost, freecost, lwipcost, getcost, setcost);
-#endif
             break;
         }
     } // conn loop
@@ -1058,10 +955,10 @@ handle_memcached(char * buf, void * priv) {
     int ret = 0;
     size_t maxbytes = 0;
     if ((ret = sscanf(buf, "memcached %lu",&maxbytes)) != 1) {
-        printf("Memcached setting: no mem_limit\n");
+        fprintf(stderr, "Memcached setting: no mem_limit\n");
         maxbytes = 0;
     } else {
-        printf("Memcached setting: maxbytes %lu MB\n", maxbytes);
+        fprintf(stderr, "Memcached setting: maxbytes %lu MB\n", maxbytes);
         maxbytes *= 1024*1024UL;
     }
 #else
@@ -1072,8 +969,12 @@ int main() {
     settings.verbose = 1;//2;
     settings.maxconns = 1024;
 
+
+    settings.num_threads = nautilus_info.sys.num_cpus - 1; // 4;
+    if (settings.num_threads == 0)
+        settings.num_threads = 1;
+
     settings.port = 11211;
-    settings.num_threads = 4;
     settings.maxbytes = maxbytes;
     settings.oldest_live = 0;
     settings.oldest_cas = 0;
@@ -1088,7 +989,7 @@ int main() {
     // from NO_MODERN
     settings.slab_chunk_size_max = settings.slab_page_size;
 
-    printf("Initialize memcached: maxconn %lu, num_threads %lu, chunk_size_max %lu\n",
+    fprintf(stderr, "Initialize memcached: maxconn %lu, num_threads %lu, chunk_size_max %lu\n",
         settings.maxconns, settings.num_threads,settings.slab_chunk_size_max);
 
     enum hashfunc_type hash_type = MURMUR3_HASH;
@@ -1138,7 +1039,7 @@ int main() {
     /* use tcp */
     int acc_sock;
     if ((acc_sock = server_socket(settings.port)) == -1 ) {
-        printf("failed to listen on TCP port %d\n", settings.port);
+        fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
         return 0;
     }
 
@@ -1150,22 +1051,10 @@ int main() {
         int conn_sock;
         struct sockaddr_in client_addr; 
         socklen_t client_addrlen = sizeof(client_addr);
-        printf("Waiting for clients\n");
+        fprintf(stderr, "Waiting for clients\n");
         conn_sock = accept(acc_sock, (struct sockaddr*)&client_addr, &client_addrlen);
         if(conn_sock >= 0) {
-#if ZJP_TIME
-            //zjpflag = 1;
-            readcost = 0;
-            writecost= 0;
-            lwipcost = 0;
-            malloccost = 0;
-            freecost = 0;
-            getcost = 0;
-            setcost = 0;
-            fprintf(stderr, "new conn arrives at %lf\n", gettime()); 
-#else
-            printf("new conn %d arrives\n", conn_sock); 
-#endif
+            fprintf(stderr, "new conn %d arrives\n", conn_sock); 
             dispatch_conn_new(conn_sock, DATA_BUFFER_SIZE);
         }
     }

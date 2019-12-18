@@ -532,7 +532,9 @@ netconn_recv_data(struct netconn *conn, void **new_buf)
     return ERR_TIMEOUT;
   }
 #else
+
   sys_arch_mbox_fetch(&conn->recvmbox, &buf, 0);
+
 #endif /* LWIP_SO_RCVTIMEO*/
 
 #if LWIP_TCP

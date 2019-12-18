@@ -87,6 +87,16 @@ sys_mutex_t lock_tcpip_core;
 static void
 tcpip_thread(void *arg)
 {
+#if 0 // zjp
+    static struct nk_sched_constraints constraints = {
+        .type = APERIODIC,
+        .interrupt_priority_class = 0x00,
+        .aperiodic.priority = (10000000ULL/NAUT_CONFIG_HZ),
+    };
+    if (nk_sched_thread_change_constraints(&constraints)) {
+        printk("%s: change constraint failed!\n", __FUNCTION__);
+    }
+#endif
   struct tcpip_msg *msg;
   LWIP_UNUSED_ARG(arg);
 

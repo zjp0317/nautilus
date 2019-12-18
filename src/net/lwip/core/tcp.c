@@ -85,8 +85,8 @@
 #endif /* LWIP_TCP_KEEPALIVE */
 
 /* As initial send MSS, we use TCP_MSS but limit it to 536. */
-#if TCP_MSS > 1024 // zjp 536
-#define INITIAL_MSS 1024 // 536
+#if TCP_MSS > 536
+#define INITIAL_MSS 536
 #else
 #define INITIAL_MSS TCP_MSS
 #endif

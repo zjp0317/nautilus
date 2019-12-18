@@ -556,6 +556,7 @@ tcp_write(struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags)
    * The new segments are chained together in the local 'queue'
    * variable, ready to be appended to pcb->unsent.
    */
+
   while (pos < len) {
     struct pbuf *p;
     u16_t left = len - pos;

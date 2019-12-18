@@ -993,12 +993,12 @@ lwip_sendmsg(int s, const struct msghdr *msg, int flags)
     ((flags & MSG_MORE)     ? NETCONN_MORE      : 0) |
     ((flags & MSG_DONTWAIT) ? NETCONN_DONTBLOCK : 0);
 
-#if 0 // zjp fix: this old lwip version really should be replaced...  
+#if 0 // zjp 
     /*
      * See this patch online:
      * Vectorize netconn_write for TCP - This patch adds support to the netconn write APIs to take an input of vectors instead of a single data pointer.  This allows vectors sent on a TCP connection via sendmsg to be treated atomically.  The set of vectors is segmented into as much data as can fit into the send buffer and then the TCP output function is called. Previously, each vector was passed to netconn_write_partly and tcp_write segmented it into its own packet, which was then it was sent via tcp_output (if not Nagleing). This patch adds vector support to lwip_netconn_do_writemore() which is the meat of the TCP write functionality from netconn/sockets layer. A new netconn API netconn_write_vectors_partly() takes a set of vectors as input and hooks up to do_writemore() 
      */
-#else // current code handles each iov separetly!!
+#endif
     for (i = 0; i < msg->msg_iovlen; i++) {
       u8_t apiflags = write_flags;
       if (i + 1 < msg->msg_iovlen) {
@@ -1025,7 +1025,6 @@ lwip_sendmsg(int s, const struct msghdr *msg, int flags)
     }
     sock_set_errno(sock, err_to_errno(err));
     return size;
-#endif // zjp fix
 #else /* LWIP_TCP */
     sock_set_errno(sock, err_to_errno(ERR_ARG));
     return -1;

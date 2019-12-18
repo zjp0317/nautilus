@@ -137,10 +137,11 @@ int nk_net_lwip_add_interface(struct nk_net_lwip_interface *intconf)
     netif_add(inter, &ip, &netmask, &gw, intconf->name, ethernetif_init, tcpip_input);
     netif_set_up(inter);
 
-    // zjp
+#if 1
     netif_set_default(inter);
-    printk("zjp dhcp start\n");
+    INFO_PRINT("dhcp start\n");
     dhcp_start(inter); 
+#endif
 
     INFO("interface %s added\n", intconf->name);
 	

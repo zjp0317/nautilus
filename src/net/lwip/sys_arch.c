@@ -283,13 +283,16 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mb, void **msg, u32_t timeout)
 {
     
     LWIP_ASSERT("invalid mbox", sys_mbox_valid(mb));
-    uint64_t start = nk_sched_get_realtime();
+    uint64_t start = 0; 
+    //if(timeout == 0) // zjp: if no timeout, don't bother time
+        start = nk_sched_get_realtime();
     uint64_t end;
 
     DEBUG("Mbox fetch %p timeout=%u\n",mb,timeout);
     
     if (timeout==0) {
 	nk_msg_queue_pull(mb->mq,msg);
+    //return 0; // zjp: if no timeout, don't bother time
 	end = nk_sched_get_realtime();
 	DEBUG("Mbox fetch %p %p succeeded time=%u\n",mb,*msg, CEIL_DIV(end-start,NS_PER_MS));
 	return CEIL_DIV(end-start,NS_PER_MS);
@@ -346,6 +349,7 @@ sys_thread_t sys_thread_new(char *name, lwip_thread_fn thread, void *arg, int st
 	ERROR("Failed to start thread\n");
 	return 0;
     }
+
     code = nk_thread_name(tid, name);
     if (code!=0) {
 	ERROR("Failed to name thread\n");
