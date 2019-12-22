@@ -217,7 +217,11 @@ nk_linker_init (struct naut_info * naut)
 
     DEBUG("Initializing linker\n");
 
+#ifdef NAUT_CONFIG_PISCES
+    linfo = kmem_malloc_internal(sizeof(struct nk_link_info));
+#else
     linfo = malloc(sizeof(struct nk_link_info));
+#endif
     if (!linfo) {
         ERROR("Could not allocate linker info\n");
         return -1;

@@ -147,6 +147,16 @@
 //#define TASK_LOCK(t) spin_lock(&((t)->lock))
 //#define TASK_TRY_LOCK(t) spin_try_lock(&((t)->lock))
 //#define TASK_UNLOCK(t) spin_unlock(&((t)->lock))
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#ifdef malloc_specific
+#undef malloc_specific
+#endif
+#define malloc(x) kmem_malloc_internal(x)
+#define malloc_specific(x,c) kmem_malloc_specific_internal(x,c, 0)
+#endif
 
 #if SANITY_CHECKS
 #define PAD 0
@@ -158,7 +168,6 @@
 #define MALLOC(x) malloc(x)
 #define FREE(x) free(x)
 #endif // sanity checks
-
 #define ZERO(x) memset(x, 0, sizeof(*x))
 //#define ZERO_QUEUE(x) memset(x, 0, sizeof(rt_priority_queue) + MAX_QUEUE * sizeof(rt_thread *))
 

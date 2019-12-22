@@ -56,6 +56,16 @@ extern uint8_t malloc_cpus_ready;
 #define THREAD_DEBUG(fmt, args...) DEBUG_PRINT("Thread: " fmt, ##args)
 #define THREAD_WARN(fmt, args...)  WARN_PRINT("Thread: " fmt, ##args)
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#ifdef malloc_specific
+#undef malloc_specific
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#define malloc_specific(n, c) kmem_malloc_specific_internal(n, c, 0)
+#endif
 static unsigned long next_tid = 0;
 
 extern addr_t boot_stack_start;

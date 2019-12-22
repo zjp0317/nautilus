@@ -137,7 +137,7 @@ int nk_net_lwip_add_interface(struct nk_net_lwip_interface *intconf)
     netif_add(inter, &ip, &netmask, &gw, intconf->name, ethernetif_init, tcpip_input);
     netif_set_up(inter);
 
-#if 1
+#if 0
     netif_set_default(inter);
     INFO_PRINT("dhcp start\n");
     dhcp_start(inter); 

@@ -65,8 +65,8 @@
 #define RECEIVE_QUEUE_SIZE 15
 
 #ifdef NAUT_CONFIG_PISCES_SHORT_LWIP // zjp try a short path
-#define RECEIVE_DSC_COUNT  255 // should match RX_DSC_COUNT-1, due to nautilus's map ring logic 
-#define SEND_DSC_COUNT     255 // should match TX_DSC_COUNT-1 
+#define RECEIVE_DSC_COUNT  2047 // 255 // should match RX_DSC_COUNT-1, due to nautilus's map ring logic 
+#define SEND_DSC_COUNT     2047 // 255 // should match TX_DSC_COUNT-1 
 #endif
 
 /**

@@ -182,9 +182,9 @@ handle_net (char * buf, void * priv)
             return 0;
         }
         struct nk_net_lwip_interface inter = { .name = "e1000e-0",
-            .ipaddr = 0x0a0a0a0a,
-            .netmask = 0xffffff00,
-            .gateway = 0x0a0a0a01 };
+            .ipaddr = 0xac104392, // 172.16.67.146
+            .netmask = 0xffffff00, 
+            .gateway = 0xac104302 };
         if (nk_net_lwip_add_interface(&inter)) {
             nk_vc_printf("Failed to add interface\n");
             return 0;

@@ -39,6 +39,12 @@
 #include <nautilus/naut_string.h>
 #include <nautilus/mm.h>
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 
 struct nk_hash_entry {
     addr_t key;

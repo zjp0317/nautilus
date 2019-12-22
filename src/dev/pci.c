@@ -41,6 +41,12 @@
 #define PCI_WARN(fmt, args...)  WARN_PRINT("PCI: " fmt, ##args)
 #define PCI_ERROR(fmt, args...) ERROR_PRINT("PCI: " fmt, ##args)
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 
 uint16_t 
 pci_cfg_readw (uint8_t bus, 

@@ -93,9 +93,9 @@
 // The number of descriptors is always a multiple of eight.
 // both tx_dsc_count and rx_dsc_count should be multiple of 16.
 
-#define TX_DSC_COUNT          256 // zjp 256=0x1000/16B 128     
+#define TX_DSC_COUNT          2048 // zjp 256=0x1000/16B 128     
 #define TX_BLOCKSIZE          256      // bytes available per DMA block
-#define RX_DSC_COUNT          256 // zjp 128      // equal to DMA block count
+#define RX_DSC_COUNT          2048 // zjp 128      // equal to DMA block count
 #define RX_BLOCKSIZE          256      // bytes available per DMA block
 #define RESTART_DELAY         5        // usec = 5 us 
 #define RX_PACKET_BUFFER_SIZE 2048 // zjp 2048     // the size of the packet buffer
@@ -509,7 +509,7 @@ static struct list_head dev_list;
 // initialize the tx ring buffer to store transmit descriptors
 static int e1000e_init_transmit_ring(struct e1000e_state *state)
 {
-  TXMAP = malloc(sizeof(struct e1000e_map_ring));
+  TXMAP = kmem_malloc_internal(sizeof(struct e1000e_map_ring));
   if (!TXMAP) {
     ERROR("Cannot allocate txmap\n");
     return -1;
@@ -517,14 +517,14 @@ static int e1000e_init_transmit_ring(struct e1000e_state *state)
   memset(TXMAP, 0, sizeof(struct e1000e_map_ring));
   TXMAP->ring_len = TX_DSC_COUNT;
 
-  TXMAP->map_ring = malloc(sizeof(struct e1000e_fn_map) * TX_DSC_COUNT);
+  TXMAP->map_ring = kmem_malloc_internal(sizeof(struct e1000e_fn_map) * TX_DSC_COUNT);
   if (!TXMAP->map_ring) {
     ERROR("Cannot allocate txmap->ring\n");
     return -1;
   }
   memset(TXMAP->map_ring, 0, sizeof(struct e1000e_fn_map) * TX_DSC_COUNT);
 
-  TXD_RING = malloc(sizeof(struct e1000e_desc_ring));
+  TXD_RING = kmem_malloc_internal(sizeof(struct e1000e_desc_ring));
   if (!TXD_RING) {
     ERROR("Cannot allocate TXD_RING\n");
     return -1;
@@ -532,7 +532,7 @@ static int e1000e_init_transmit_ring(struct e1000e_state *state)
   memset(TXD_RING, 0, sizeof(struct e1000e_desc_ring));
 
   // allocate TX_DESC_COUNT transmit descriptors in the ring buffer.
-  TXD_RING_BUFFER = malloc(sizeof(struct e1000e_tx_desc)*TX_DSC_COUNT);
+  TXD_RING_BUFFER = kmem_malloc_internal(sizeof(struct e1000e_tx_desc)*TX_DSC_COUNT);
   if (!TXD_RING_BUFFER) {
     ERROR("Cannot allocate TXD_RING_BUFFER\n");
     return -1;
@@ -631,14 +631,14 @@ static int e1000e_set_receive_buffer_size(struct e1000e_state* state, uint32_t b
 // initialize the rx ring buffer to store receive descriptors
 static int e1000e_init_receive_ring(struct e1000e_state *state)
 {
-  RXMAP = malloc(sizeof(struct e1000e_map_ring));
+  RXMAP = kmem_malloc_internal(sizeof(struct e1000e_map_ring));
   if (!RXMAP) {
     ERROR("Cannot allocate rxmap\n");
     return -1;
   }
   memset(RXMAP, 0, sizeof(struct e1000e_map_ring));
 
-  RXMAP->map_ring = malloc(sizeof(struct e1000e_fn_map) * RX_DSC_COUNT);
+  RXMAP->map_ring = kmem_malloc_internal(sizeof(struct e1000e_fn_map) * RX_DSC_COUNT);
   if (!RXMAP->map_ring) {
     ERROR("Cannot allocate rxmap->ring\n");
     return -1;
@@ -646,7 +646,7 @@ static int e1000e_init_receive_ring(struct e1000e_state *state)
   memset(RXMAP->map_ring, 0, sizeof(struct e1000e_fn_map) * RX_DSC_COUNT);
   RXMAP->ring_len = RX_DSC_COUNT;
 
-  RXD_RING = malloc(sizeof(struct e1000e_desc_ring));
+  RXD_RING = kmem_malloc_internal(sizeof(struct e1000e_desc_ring));
   if (!RXD_RING) {
     ERROR("Cannot allocate rxd_ring buffer\n");
     return -1;
@@ -658,7 +658,7 @@ static int e1000e_init_receive_ring(struct e1000e_state *state)
 
   // allocate the receive descriptor ring buffer
   uint32_t rx_desc_size = sizeof(struct e1000e_rx_desc) * RX_DSC_COUNT;
-  RXD_RING_BUFFER = malloc(rx_desc_size);
+  RXD_RING_BUFFER = kmem_malloc_internal(rx_desc_size);
   if (!RXD_RING_BUFFER) {
     ERROR("Cannot allocate RXD_RING_BUFFER\n");
     return -1;
@@ -1247,7 +1247,7 @@ int pisces_e1000e_pci_init(uint8_t bus, uint8_t dev, uint8_t fun, uint8_t *vec)
         int foundio=0, foundmem=0;
 
         DEBUG("Found E1000E Device\n");
-        struct e1000e_state *state = malloc(sizeof(struct e1000e_state));
+        struct e1000e_state *state = kmem_malloc_internal(sizeof(struct e1000e_state));
 
         if (!state) {
             ERROR("Cannot allocate device\n");
@@ -1589,7 +1589,7 @@ int e1000e_pci_init(struct naut_info * naut)
 	int foundio=0, foundmem=0;
 	
         DEBUG("Found E1000E Device\n");
-        struct e1000e_state *state = malloc(sizeof(struct e1000e_state));
+        struct e1000e_state *state = kmem_malloc_internal(sizeof(struct e1000e_state));
 	
         if (!state) {
           ERROR("Cannot allocate device\n");

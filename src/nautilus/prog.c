@@ -69,7 +69,11 @@ init_argv (struct nk_prog_info * pr, struct multiboot_mod * mod)
 
     while (tmp) {
         int arglen = strnlen(tmp, MAX_ARG_LEN) + 1;
+#ifdef NAUT_CONFIG_PISCES
+        char * arg = kmem_malloc_internal(arglen);
+#else
         char * arg = malloc(arglen);
+#endif
         if (!arg) {
             ERROR_PRINT("Could not allocate arg %d\n", i);
         }
@@ -93,7 +97,11 @@ nk_prog_init (struct naut_info * naut)
     struct list_head * tmp = NULL;
     struct multiboot_mod * mod = NULL;
 
+#ifdef NAUT_CONFIG_PISCES
+    prog = kmem_malloc_internal(sizeof(struct nk_prog_info));
+#else
     prog = malloc(sizeof(struct nk_prog_info));
+#endif
 
     if (!prog) {
         ERROR_PRINT("Could not allocate program info\n");

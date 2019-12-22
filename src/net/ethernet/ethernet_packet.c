@@ -32,9 +32,7 @@
 
 
 // not currently a Kconfig option
-#define NAUT_CONFIG_NET_ETHERNET_INIT_POOL_SIZE 256
-
-#define NAUT_CONFIG_NET_ETHERNET_INIT_POOL_SIZE 256
+#define NAUT_CONFIG_NET_ETHERNET_INIT_POOL_SIZE 2048 // zjp (5x/2 > rx+tx)  256
 
 #define POOL_INIT_START  (NAUT_CONFIG_NET_ETHERNET_INIT_POOL_SIZE)
 #define POOL_INIT_LOW    (POOL_INIT_START/2)
@@ -65,7 +63,9 @@ static void try_grow_if_needed()
 	uint64_t i;
 
 	for (i=0;i<needed;i++) {
-	    nk_ethernet_packet_t *p = malloc(sizeof(nk_ethernet_packet_t));
+        // zjp
+	    nk_ethernet_packet_t *p = kmem_malloc_internal(sizeof(nk_ethernet_packet_t));
+	    //nk_ethernet_packet_t *p = malloc(sizeof(nk_ethernet_packet_t));
 	    if (!p) {
 		break;
 	    }
@@ -117,7 +117,9 @@ nk_ethernet_packet_t *nk_net_ethernet_alloc_packet(int cpu)
 	    goto retry;
 	} else {
 	    ERROR("Failed to grow packet pool?!\n");
-	    p = (nk_ethernet_packet_t *)malloc_specific(sizeof(nk_ethernet_packet_t),cpu);
+        // zjp
+	    p = (nk_ethernet_packet_t *)kmem_malloc_specific_internal(sizeof(nk_ethernet_packet_t),cpu, 0);
+	    //p = (nk_ethernet_packet_t *)malloc_specific(sizeof(nk_ethernet_packet_t),cpu);
 	}
     } else {
 	p = list_entry(cur,nk_ethernet_packet_t, node);

@@ -291,14 +291,22 @@ nk_cpu_topo_discover (struct cpu * me)
     struct nk_cpu_coords * coord = NULL;
     struct nk_topo_params * tp = NULL;
 
+#ifdef NAUT_CONFIG_PISCES
+    coord = (struct nk_cpu_coords*)kmem_malloc_internal(sizeof(struct nk_cpu_coords));
+#else
     coord = (struct nk_cpu_coords*)malloc(sizeof(struct nk_cpu_coords));
+#endif
     if (!coord) {
         NUMA_ERROR("Could not allocate coord struct for CPU %u\n", my_cpu_id());
         return -1;
     }
     memset(coord, 0, sizeof(struct nk_cpu_coords));
 
+#ifdef NAUT_CONFIG_PISCES
+    tp = (struct nk_topo_params*)kmem_malloc_internal(sizeof(struct nk_topo_params));
+#else
     tp = (struct nk_topo_params*)malloc(sizeof(struct nk_topo_params));
+#endif
     if (!tp) {
         NUMA_ERROR("Could not allocate param struct for CPU %u\n", my_cpu_id());
         goto out_err;

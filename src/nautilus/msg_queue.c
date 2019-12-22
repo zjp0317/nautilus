@@ -123,8 +123,12 @@ struct nk_msg_queue *nk_msg_queue_create(char *name,
 
     DEBUG("create %s with size %lu\n",name,size);
     
+    // zjp
+#ifdef NAUT_CONFIG_PISCES
+    struct nk_msg_queue *q = kmem_malloc_internal(sizeof(*q)+size*sizeof(void*));
+#else
     struct nk_msg_queue *q = malloc(sizeof(*q)+size*sizeof(void*));
-
+#endif
     if (!q) {
 	ERROR("Cannot allocate\n");
 	return 0;

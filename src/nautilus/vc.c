@@ -60,6 +60,12 @@
 extern void pisces_cons_write (const char *str);
 extern void pisces_cons_putc (unsigned char c);
 #endif
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 
 static int up=0;
 

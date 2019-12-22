@@ -69,8 +69,11 @@ nk_timer_t *nk_timer_create(char *name)
 {
     char buf[NK_TIMER_NAME_LEN];
     char mbuf[NK_WAIT_QUEUE_NAME_LEN];
-    
+#ifdef NAUT_CONFIG_PISCES
+    struct nk_timer *t = kmem_malloc_internal(sizeof(struct nk_timer));
+#else
     struct nk_timer *t = malloc(sizeof(struct nk_timer));
+#endif
     
     if (!t) { 
 	ERROR("Timer allocation failed\n");

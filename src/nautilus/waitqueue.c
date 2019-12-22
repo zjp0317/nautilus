@@ -73,7 +73,11 @@ void nk_wait_queue_initialize(nk_wait_queue_t *q, char* name)
 
 nk_wait_queue_t *nk_wait_queue_create(char *name)
 {
+#ifdef NAUT_CONFIG_PISCES
+    nk_wait_queue_t *q = kmem_malloc_internal(sizeof(*q));
+#else
     nk_wait_queue_t *q = malloc(sizeof(*q));
+#endif
 
     if (q) {
         STATE_LOCK_CONF;

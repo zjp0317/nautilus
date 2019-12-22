@@ -90,6 +90,12 @@
 #define PMC_DEBUG(fmt, args...)
 #endif
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 
 /*
  * These are the AMD-specific PMC event attributes. If you add new counters,
@@ -847,6 +853,7 @@ nk_pmc_init (struct naut_info * naut)
     PMC_INFO("Initializing PMC subsystem\n");
 
     pmc = malloc(sizeof(pmc_info_t));
+
     if (!pmc) {
         PMC_ERR("Could not allocate PMC info\n");
         return -1;

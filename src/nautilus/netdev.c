@@ -31,8 +31,8 @@
 #endif
 
 #define ERROR(fmt, args...) ERROR_PRINT("netdev: " fmt, ##args)
-#define DEBUG(fmt, args...) printk("netdev: " fmt, ##args)
-//#define DEBUG(fmt, args...) DEBUG_PRINT("netdev: " fmt, ##args)
+//#define DEBUG(fmt, args...) printk("netdev: " fmt, ##args)
+#define DEBUG(fmt, args...) DEBUG_PRINT("netdev: " fmt, ##args)
 #define INFO(fmt, args...) INFO_PRINT("netdev: " fmt, ##args)
 
 #if 0

@@ -46,6 +46,12 @@
 #define FILE_LOCK(fd) _file_lock_flags = spin_lock_irq_save(&fd->lock)
 #define FILE_UNLOCK(fd) spin_unlock_irq_restore(&fd->lock, _file_lock_flags);
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 
 
 //typedef enum {EXT2}      nk_fs_type_t;

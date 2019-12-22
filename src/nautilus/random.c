@@ -113,7 +113,7 @@ nk_get_rand_bytes (uint8_t * buf, unsigned len)
 int
 nk_rand_init (struct cpu * cpu) 
 {
-    cpu->rand = malloc(sizeof(struct nk_rand_info));
+    cpu->rand = kmem_malloc_internal(sizeof(struct nk_rand_info));
     if (!cpu->rand) {
         ERROR_PRINT("Could not allocate CPU random info\n");
         return -1;

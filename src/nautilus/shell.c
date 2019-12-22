@@ -37,6 +37,12 @@
 
 #define CHAR_TO_IDX(k) (tolower((k)) - 'a')
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
 struct shell_op {
   char name[SHELL_OP_NAME_LEN];
   char **script;
@@ -535,6 +541,7 @@ pisces_task_thread (void * in, void ** out)
     cmd->impl->handler(t_arg->buf, cmd->priv_data);
 
     kmem_free(t_arg);
+    nk_thread_exit(NULL);
     return;
 }
 #endif
@@ -562,7 +569,8 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
 
     if (cmd && cmd->impl && cmd->impl->handler) {
 #ifdef NAUT_CONFIG_PISCES
-        if(0 == strcmp(cmd_buf, "memcached")) {
+        if(1) {
+        //if(0 == strcmp(cmd_buf, "memcached")) {
             // specific for memcached
             struct shell_thread_arg {
                 struct shell_cmd * cmd;
@@ -576,7 +584,8 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
             if((ret = nk_thread_start(pisces_task_thread, (void*)t_arg, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
                 printk("Failed to launch a task thread for memcached server\n");
             }
-            nk_thread_name(tid, "memcached");
+            nk_thread_name(tid, "cmd");
+            //nk_thread_name(tid, "memcached");
         } else {
             ret = cmd->impl->handler(buf, cmd->priv_data);
         }
@@ -799,6 +808,8 @@ shell (void * in, void ** out)
         nk_wait_queue_sleep_extended(&pisces_waitq, check_pisces_buf_cond, pisces_buf);
         strncpy(buf, pisces_buf, SHELL_MAX_CMD);
         nk_vc_printf("%s> %s\n", (char*)in, buf);
+        // delay 100ms
+        //udelay(100000);
 #else
         nk_vc_gets(buf, SHELL_MAX_CMD, 1, user_typed, state);
 #endif

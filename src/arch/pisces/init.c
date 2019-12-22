@@ -174,7 +174,11 @@ struct nk_sched_config sched_cfg = {
 static int 
 sysinfo_init (struct sys_info * sys)
 {
+#ifdef NAUT_CONFIG_PISCES
+    sys->core_barrier = (nk_barrier_t*)kmem_malloc_internal(sizeof(nk_barrier_t));
+#else
     sys->core_barrier = (nk_barrier_t*)malloc(sizeof(nk_barrier_t));
+#endif
     if (!sys->core_barrier) {
         ERROR_PRINT("Could not allocate core barrier\n");
         return -1;
@@ -285,9 +289,12 @@ init (unsigned long mbd,
 
     // get the real kernel size: Important!!
     extern addr_t _data_end;
-    pisces_boot_params->kernel_size = (addr_t)&_data_end;
+    extern addr_t _loadStart;
+    pisces_boot_params->kernel_size = (addr_t)&_data_end - (addr_t)&_loadStart;
 
     pisces_console_init();
+
+    printk("nautilus kernel size %u\n", pisces_boot_params->kernel_size);
 
     // We ask for 2 memory blocks at least.
     // --The 1st block is used for boot allocator, and all pages for dynamic page table.
@@ -502,7 +509,6 @@ init (unsigned long mbd,
     /* interrupts are now on */
 
     nk_vc_init();
-
     
 #ifdef NAUT_CONFIG_VIRTUAL_CONSOLE_CHARDEV_CONSOLE
     nk_vc_start_chardev_console(NAUT_CONFIG_VIRTUAL_CONSOLE_CHARDEV_CONSOLE_NAME);

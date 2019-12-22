@@ -82,11 +82,11 @@ cmd_handler(u8    * data,
             }
 #if 0 // test codes to verify the buddy states 
             zone_mem_show(numa_info->domains[0]->zone);
-            char* ptr_prev_1 = kmem_malloc( 64*1024*1024);
-            char* ptr_prev_2 = kmem_malloc( 32*1024*1024);
-            char* ptr_1 = kmem_malloc( 32*1024*1024);
-            char* ptr_2 = kmem_malloc( 64*1024*1024);
-            char* ptr_3 = kmem_malloc( 32*1024*1024);
+            char* ptr_prev_1 = kmem_malloc_internal( 64*1024*1024);
+            char* ptr_prev_2 = kmem_malloc_internal( 32*1024*1024);
+            char* ptr_1 = kmem_malloc_internal( 32*1024*1024);
+            char* ptr_2 = kmem_malloc_internal( 64*1024*1024);
+            char* ptr_3 = kmem_malloc_internal( 32*1024*1024);
             zone_mem_show(numa_info->domains[0]->zone);
 
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
@@ -179,13 +179,28 @@ cmd_handler(u8    * data,
 	return;
 }
 
+static void
+pisces_drequest_thread (void * in, void ** out)
+{
+    while(1) {
+
+    }
+    return;
+}
+
 int 
 pisces_ctrl_init(void)
 {
 	xbuf_desc = pisces_xbuf_server_init((uintptr_t)pa_to_va(pisces_boot_params->control_buf_addr), 
 					    pisces_boot_params->control_buf_size, 
 					    cmd_handler, NULL, -1, 0);		 
-
+/*
+    nk_thread_id_t tid;
+    if((ret = nk_thread_start(pisces_drequest_thread, (void*)t_arg, 0, 1, TASK_THREAD_STACK_SIZE, &tid, -1))) {
+        printk("Failed to launch a task thread for memcached server\n");
+    }
+    nk_thread_name(tid, "pisces_drequest");
+*/
 	if (xbuf_desc == NULL) {
 		printk("Could not initialize cmd/ctrl xbuf channel\n");
 		return -1;

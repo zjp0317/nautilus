@@ -163,7 +163,7 @@ recv_data(struct pisces_xbuf * xbuf, u8 ** data, u32 * data_len)
     }
 
     *data_len = xbuf->data_len;
-    *data     = kmem_malloc(*data_len);
+    *data     = kmem_malloc_internal(*data_len);
 
 
     //printk("Reading %u bytes\n", bytes_left);
@@ -350,7 +350,7 @@ pisces_xbuf_complete(struct pisces_xbuf_desc * desc,
 
     send_data(xbuf, data, data_len);
 
-    printk("XBUF response is fully sent\n");
+    DEBUG("XBUF response is fully sent\n");
 
     return 0;
 }
@@ -428,7 +428,7 @@ pisces_xbuf_server_init(uintptr_t   xbuf_va,
     struct pisces_xbuf_desc * desc = NULL;
     struct pisces_xbuf      * xbuf = (struct pisces_xbuf *)xbuf_va;
 
-    desc = kmem_malloc(sizeof(struct pisces_xbuf_desc));
+    desc = kmem_malloc_internal(sizeof(struct pisces_xbuf_desc));
 
     if (desc == NULL) {
         printk("Could not allocate xbuf state\n");
@@ -483,7 +483,7 @@ pisces_xbuf_client_init(uintptr_t xbuf_va,
         u32       target_cpu)
 {
     struct pisces_xbuf      * xbuf = (struct pisces_xbuf *)xbuf_va;
-    struct pisces_xbuf_desc * desc = kmem_malloc(sizeof(struct pisces_xbuf_desc));
+    struct pisces_xbuf_desc * desc = kmem_malloc_internal(sizeof(struct pisces_xbuf_desc));
 
     //printk("XBUF client init At VA=%p\n", (void *)xbuf_va);
 

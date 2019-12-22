@@ -35,6 +35,13 @@
 #define WARN(fmt, args...)  WARN_PRINT("TEST: " fmt, ##args)
 #define ERROR(fmt, args...) ERROR_PRINT("TEST: " fmt, ##args)
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
+
 struct nk_test_harness {
     struct nk_hashtable * htable;
     int test_cnt;

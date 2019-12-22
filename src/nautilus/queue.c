@@ -31,7 +31,11 @@ nk_queue_t*
 nk_queue_create (void)
 {
     nk_queue_t * q = NULL;
+#ifdef NAUT_CONFIG_PISCES
+    q = kmem_malloc_internal(sizeof(nk_queue_t));
+#else
     q = malloc(sizeof(nk_queue_t));
+#endif
     if (unlikely(!q)) {
         return NULL;
     }

@@ -43,7 +43,8 @@
 #define DEBUG_PRINT(fmt, args...)
 #endif
 
-#define APIC_DEBUG(fmt, args...) DEBUG_PRINT("APIC: " fmt, ##args)
+#define APIC_DEBUG(fmt, args...) printk("APIC: " fmt, ##args)
+//#define APIC_DEBUG(fmt, args...) DEBUG_PRINT("APIC: " fmt, ##args)
 #define APIC_PRINT(fmt, args...) INFO_PRINT("APIC: " fmt, ##args)
 #define APIC_WARN(fmt, args...)  WARN_PRINT("APIC: " fmt, ##args)
 #define APIC_ERROR(fmt, args...) ERROR_PRINT("APIC: " fmt, ##args)
@@ -773,8 +774,11 @@ apic_init (struct cpu * core)
     ulong_t base_addr;
     uint32_t val;
     apic_mode_t curmode,maxmode;
-
+#ifdef NAUT_CONFIG_PISCES
+    apic = (struct apic_dev*)kmem_malloc_internal(sizeof(struct apic_dev));
+#else
     apic = (struct apic_dev*)malloc(sizeof(struct apic_dev));
+#endif
     if (!apic) {
         panic("Could not allocate apic struct\n");
     }

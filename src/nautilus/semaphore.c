@@ -65,6 +65,13 @@ static struct list_head sem_list;
 #define SEMAPHORE_UNLOCK(s) spin_unlock_irq_restore(&(s)->lock, _semaphore_lock_flags)
 #define SEMAPHORE_UNIRQ(s) irq_enable_restore(_semaphore_lock_flags)
 
+#ifdef NAUT_CONFIG_PISCES
+#ifdef malloc
+#undef malloc
+#endif
+#define malloc(n) kmem_malloc_internal(n)
+#endif
+
 struct nk_semaphore {
     spinlock_t         lock;
     struct list_head   node; // for global list of named semaphores

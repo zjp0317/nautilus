@@ -10,6 +10,7 @@ obj-y += test.o
 
 obj-y += new-malloc-test.o
 obj-y += calloc-test.o
+obj-y += malloc-test.o
 
 obj-$(NAUT_CONFIG_TEST_CACHEPART) += cachepart.o
 
