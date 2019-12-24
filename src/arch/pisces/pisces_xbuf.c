@@ -122,7 +122,7 @@ send_data(struct pisces_xbuf * xbuf, u8 * data, u32 data_len)
 
         __asm__ __volatile__ ("":::"memory");
         if (!xbuf->ready) {
-            printk("XBUF disabled during data transfer\n");
+            INFO_PRINT("XBUF disabled during data transfer\n");
             return 0;
         }
 
@@ -130,7 +130,7 @@ send_data(struct pisces_xbuf * xbuf, u8 * data, u32 data_len)
 
             __asm__ __volatile__ ("":::"memory");
             if (!xbuf->ready) {
-                printk("XBUF disabled during data transfer\n");
+                INFO_PRINT("XBUF disabled during data transfer\n");
                 return 0;
             }
 
@@ -166,13 +166,13 @@ recv_data(struct pisces_xbuf * xbuf, u8 ** data, u32 * data_len)
     *data     = kmem_malloc_internal(*data_len);
 
 
-    //printk("Reading %u bytes\n", bytes_left);
+    //INFO_PRINT("Reading %u bytes\n", bytes_left);
     while (bytes_left > 0) {
         u32 staged_len = (bytes_left > xbuf_size) ? xbuf_size : bytes_left;
 
         __asm__ __volatile__ ("":::"memory");
         if (!xbuf->ready) {
-            printk("XBUF disabled during data transfer\n");
+            INFO_PRINT("XBUF disabled during data transfer\n");
             return 0;
         }
 
@@ -180,7 +180,7 @@ recv_data(struct pisces_xbuf * xbuf, u8 ** data, u32 * data_len)
 
             __asm__ __volatile__ ("":::"memory");
             if (!xbuf->ready) {
-                printk("XBUF disabled during data transfer\n");
+                INFO_PRINT("XBUF disabled during data transfer\n");
                 return 0;
             }
 
@@ -188,7 +188,7 @@ recv_data(struct pisces_xbuf * xbuf, u8 ** data, u32 * data_len)
             __asm__ __volatile__ ("":::"memory");
         }
 
-        //printk("Copying data (%d bytes) (bytes_left=%d) (xbuf_size=%d)\n", staged_len, bytes_left, xbuf_size);
+        //INFO_PRINT("Copying data (%d bytes) (bytes_left=%d) (xbuf_size=%d)\n", staged_len, bytes_left, xbuf_size);
 
         memcpy(*data + bytes_read, xbuf->data, staged_len);
 
@@ -215,7 +215,7 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
     unsigned long        irqflags = 0;
     int                  acquired = 0;
 
-    //printk("Sending XBUF request (idx=%llu)\n", xbuf_op_idx++);
+    //INFO_PRINT("Sending XBUF request (idx=%llu)\n", xbuf_op_idx++);
 
     while (acquired == 0) {
 
@@ -224,7 +224,7 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
 
             __asm__ __volatile__ ("":::"memory");
             if (!xbuf->ready) {
-                printk("Attempted to send to unready xbuf\n");
+                INFO_PRINT("Attempted to send to unready xbuf\n");
                 spin_unlock_irq_restore(&(desc->xbuf_lock), flags);
                 goto err;
             }
@@ -250,13 +250,13 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
 
         bytes_staged = init_stage_data(xbuf, data, data_len);
 
-        //printk("Staged %u bytes of data\n", bytes_staged);
+        //INFO_PRINT("Staged %u bytes of data\n", bytes_staged);
 
         data_len -= bytes_staged;
         data     += bytes_staged;
     }
 
-    //printk("Sending IPI %d to cpu %d\n", xbuf->host_vector, xbuf->host_apic);
+    //INFO_PRINT("Sending IPI %d to cpu %d\n", xbuf->host_vector, xbuf->host_apic);
     apic_ipi(per_cpu_get(apic), xbuf->host_apic, xbuf->host_vector);
     /*
        local_irq_save(irqflags);
@@ -265,18 +265,18 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
        }
        local_irq_restore(irqflags);
      */
-    //printk("IPI completed\n");
+    //INFO_PRINT("IPI completed\n");
 
     send_data(xbuf, data, data_len);
 
-    //printk("XBUF has been sent\n");
+    //INFO_PRINT("XBUF has been sent\n");
 
     /* Wait for complete flag to be 1 */
     while (xbuf->complete == 0) {
 
         __asm__ __volatile__ ("":::"memory");
         if (!xbuf->ready) {
-            printk("XBUF disabled during data transfer\n");
+            INFO_PRINT("XBUF disabled during data transfer\n");
             goto err;
         }
 
@@ -284,7 +284,7 @@ pisces_xbuf_sync_send(struct pisces_xbuf_desc * desc,
         __asm__ __volatile__ ("":::"memory");
     }
 
-    //printk("XBUF is complete\n");
+    //INFO_PRINT("XBUF is complete\n");
 
     if ((resp_data) && (xbuf->staged == 1)) {
         // Response exists and we actually want to retrieve it
@@ -317,10 +317,10 @@ pisces_xbuf_complete(struct pisces_xbuf_desc * desc,
 {
     struct pisces_xbuf * xbuf = desc->xbuf;
 
-    //printk("Completing Xbuf xfer (data_len = %u) (data=%p)\n", data_len, data);
+    //INFO_PRINT("Completing Xbuf xfer (data_len = %u) (data=%p)\n", data_len, data);
 
     if (xbuf->active == 0) {
-        printk("Error: Attempting to complete an inactive xbuf\n");
+        INFO_PRINT("Error: Attempting to complete an inactive xbuf\n");
         return -1;
     }
 
@@ -331,7 +331,7 @@ pisces_xbuf_complete(struct pisces_xbuf_desc * desc,
 
     if ((data_len > 0) && (data != NULL)) {
         u32 bytes_staged = 0;
-        //printk("initing staged data\n");
+        //INFO_PRINT("initing staged data\n");
 
         bytes_staged = init_stage_data(xbuf, data, data_len);
 
@@ -346,7 +346,7 @@ pisces_xbuf_complete(struct pisces_xbuf_desc * desc,
 
     __asm__ __volatile__ ("":::"memory");
 
-    //printk("Xbuf IS now complete\n");
+    //INFO_PRINT("Xbuf IS now complete\n");
 
     send_data(xbuf, data, data_len);
 
@@ -366,11 +366,11 @@ ipi_handler (excp_entry_t * excp,
     u32  data_len  = 0;
     int ret = 0;
 
-    //printk("\nIPI Received %ld\n", vec);
-    //printk("desc=%p\n", desc);
+    //INFO_PRINT("\nIPI Received %ld\n", vec);
+    //INFO_PRINT("desc=%p\n", desc);
 
     if (desc == NULL) {
-        printk("IPI Handled for unknown XBUF\n");
+        INFO_PRINT("IPI Handled for unknown XBUF\n");
         ret = -1;
         goto end;
     }
@@ -378,23 +378,23 @@ ipi_handler (excp_entry_t * excp,
     xbuf = desc->xbuf;
 
     if (xbuf->active == 1) {
-        printk("Error IPI for active xbuf, this should be impossible\n");
+        INFO_PRINT("Error IPI for active xbuf, this should be impossible\n");
         ret = -1;
         goto end;
     }
 
     __asm__ __volatile__ ("":::"memory");
     if (!xbuf->ready) {
-        printk("IPI Arrived for disabled XBUF\n");
+        INFO_PRINT("IPI Arrived for disabled XBUF\n");
         //	xbuf->complete = 1;
         raise_flag(xbuf, XBUF_COMPLETE);
         ret = 0;
         goto end;
     }
 
-    //printk("Receiving Data\n");
+    //INFO_PRINT("Receiving Data\n");
     recv_data(xbuf, &data, &data_len);
-    //printk("Data_len=%d\n", data_len);
+    //INFO_PRINT("Data_len=%d\n", data_len);
 
     //xbuf->active = 1;
     raise_flag(xbuf, XBUF_ACTIVE);
@@ -402,10 +402,10 @@ ipi_handler (excp_entry_t * excp,
     __asm__ __volatile__ ("":::"memory");
 
     if (desc->recv_handler) {
-        //printk("Calling Receive handler for IPI\n");
+        //INFO_PRINT("Calling Receive handler for IPI\n");
         desc->recv_handler(data, data_len, desc->private_data);
     } else {
-        //printk("IPI Arrived for XBUF without a handler\n");
+        //INFO_PRINT("IPI Arrived for XBUF without a handler\n");
         //	xbuf->complete = 1;
         raise_flag(xbuf, XBUF_COMPLETE);
     }
@@ -431,14 +431,14 @@ pisces_xbuf_server_init(uintptr_t   xbuf_va,
     desc = kmem_malloc_internal(sizeof(struct pisces_xbuf_desc));
 
     if (desc == NULL) {
-        printk("Could not allocate xbuf state\n");
+        INFO_PRINT("Could not allocate xbuf state\n");
         return NULL;
     }
 
     // reserve one with reserved_irq_handler
     if (ipi_vector == -1) {
         if (idt_find_and_reserve_range(1,1,(ulong_t*)&ipi_vector)) {
-            printk("Cannot find/reserve one vector\n");
+            INFO_PRINT("Cannot find/reserve one vector\n");
             kmem_free(desc);
             return NULL;
         }
@@ -485,14 +485,14 @@ pisces_xbuf_client_init(uintptr_t xbuf_va,
     struct pisces_xbuf      * xbuf = (struct pisces_xbuf *)xbuf_va;
     struct pisces_xbuf_desc * desc = kmem_malloc_internal(sizeof(struct pisces_xbuf_desc));
 
-    //printk("XBUF client init At VA=%p\n", (void *)xbuf_va);
+    //INFO_PRINT("XBUF client init At VA=%p\n", (void *)xbuf_va);
 
     if ((desc == NULL) || (xbuf == NULL)) {
-        printk("Error initializing xbuf\n");
+        INFO_PRINT("Error initializing xbuf\n");
         return NULL;
     }
 
-    //printk("LCALL IPI %d to APIC %d\n", xbuf->host_vector, xbuf->host_apic);
+    //INFO_PRINT("LCALL IPI %d to APIC %d\n", xbuf->host_vector, xbuf->host_apic);
 
     memset(desc, 0, sizeof(struct pisces_xbuf_desc));
 
@@ -513,7 +513,7 @@ pisces_xbuf_disable(struct pisces_xbuf_desc * desc)
 
     __asm__ __volatile__ ("":::"memory");
     if ( !xbuf->ready ) {
-        printk("Tried to disable an already disabled xbuf\n");
+        INFO_PRINT("Tried to disable an already disabled xbuf\n");
         return -1;
     }
 
@@ -529,7 +529,7 @@ pisces_xbuf_enable(struct pisces_xbuf_desc * desc)
 
     __asm__ __volatile__ ("":::"memory");
     if (xbuf->ready) {
-        printk("Tried to enable an already enabled xbuf\n");
+        INFO_PRINT("Tried to enable an already enabled xbuf\n");
         return -1;
     }
 

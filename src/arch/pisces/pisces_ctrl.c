@@ -48,14 +48,14 @@ cmd_handler(u8    * data,
     switch(cmd->cmd) {
         case ENCLAVE_CMD_NAUTILUS_CMD: {
             struct cmd_nautilus_cmd *nautilus_cmd = (struct cmd_nautilus_cmd *)cmd;
-            printk("Receive cmd %s!\n", nautilus_cmd->cmd);
+            INFO_PRINT("Receive cmd %s!\n", nautilus_cmd->cmd);
             //break;
             /* zjp
              * nautilus-shell will keep waiting until xbuf receives this cmd from pisces 
              * TODO: this is just a test. Need a better design.
              */
             if(pisces_buf == NULL) {
-                printk("Error: pisces_buf is not initialized when issuing cmd %s !\n", nautilus_cmd->cmd);
+                INFO_PRINT("Error: pisces_buf is not initialized when issuing cmd %s !\n", nautilus_cmd->cmd);
                 break;
             }
             //strncpy(pisces_buf, nautilus_cmd->cmd, SHELL_MAX_CMD);
@@ -79,12 +79,12 @@ cmd_handler(u8    * data,
                 uint8_t flags = spin_lock_irq_save(&(numa_info->domains[0]->zone->lock));
                 numa_info->domains[0]->zone->drequest_inprogress = 0;
                 spin_unlock_irq_restore(&(numa_info->domains[0]->zone->lock), flags);
-                printk("Pisces cannot provide anymore mem now\n");
+                INFO_PRINT("Pisces cannot provide anymore mem now\n");
             } else {
-                printk("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                INFO_PRINT("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
                 ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
                 if(ret != 0) {
-                    printk("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                    INFO_PRINT("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
                 }
             }
 #if 0 // test codes to verify the buddy states 
@@ -98,23 +98,23 @@ cmd_handler(u8    * data,
 
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("expected: Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                INFO_PRINT("expected: Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             kmem_free(ptr_1);
-            printk("freed 32MB \n");
+            INFO_PRINT("freed 32MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_2);
-            printk("freed 64MB \n");
+            INFO_PRINT("freed 64MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_3);
-            printk("freed 32MB \n");
+            INFO_PRINT("freed 32MB \n");
             zone_mem_show(numa_info->domains[0]->zone);
             kmem_free(ptr_prev_2);
             kmem_free(ptr_prev_1);
-            printk("freed 64MB pool\n");
+            INFO_PRINT("freed 64MB pool\n");
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                INFO_PRINT("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             zone_mem_show(numa_info->domains[0]->zone);
 
@@ -123,11 +123,11 @@ cmd_handler(u8    * data,
         }
         case ENCLAVE_CMD_REMOVE_MEM: {
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
-            printk("Reiceve REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+            INFO_PRINT("Reiceve REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             // zjp: TODO this is just a test that adds to domian 0. Need to support any domain
             ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
             if(ret != 0) {
-                printk("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                INFO_PRINT("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
             break;
         }
@@ -141,16 +141,16 @@ cmd_handler(u8    * data,
             int cpu;
             ret = add_cpu(cpu_cmd->apic_id, &cpu);
             if(ret != 0) {
-                printk("Failed to ADD_MEM phys_cpu_id %lu apic_id %lu\n", cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
+                INFO_PRINT("Failed to ADD_MEM phys_cpu_id %lu apic_id %lu\n", cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
                 break;
             }
             ret = smp_bringup_cpu(cpu);
             if(ret != 0) {
-                printk("Failed to bringup cpu %d apic_id %lu\n", cpu, cpu_cmd->apic_id); 
+                INFO_PRINT("Failed to bringup cpu %d apic_id %lu\n", cpu, cpu_cmd->apic_id); 
                 break;
             }
 
-            //printk("Successfully added and booted cpu %d phys_cpu_id %lu apic_id %lu\n", cpu,cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
+            //INFO_PRINT("Successfully added and booted cpu %d phys_cpu_id %lu apic_id %lu\n", cpu,cpu_cmd->phys_cpu_id, cpu_cmd->apic_id); 
             //apic_ipi(nk_get_nautilus_info()->sys.cpus[0]->apic, nk_get_nautilus_info()->sys.cpus[cpu]->apic->id, 13);
             break;
 #endif
@@ -159,17 +159,17 @@ cmd_handler(u8    * data,
             struct cmd_add_pci_dev pci_cmd;
             memcpy(&pci_cmd, cmd, sizeof(struct cmd_add_pci_dev));
             struct pisces_pci_spec *dev_spec = &pci_cmd.spec;
-            printk("Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func); 
+            INFO_PRINT("Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func); 
             // TODO Note that currently nautilus directly scan and probe. Thus the dev has already been registered
             ret = pisces_pci_add(dev_spec->bus, dev_spec->dev, dev_spec->func);
             if(ret != 0)
-                printk("Falied to Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
+                INFO_PRINT("Falied to Add_PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
             uint8_t vec;
             ret = pisces_e1000e_pci_init(dev_spec->bus, dev_spec->dev, dev_spec->func, &vec);
             if(ret != 0)
-                printk("Falied to init PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
+                INFO_PRINT("Falied to init PCI name %s bus %u dev %u func %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func);
             else
-                printk("Successfully init PCI name %s bus %u dev %u func %u vec %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func, vec);
+                INFO_PRINT("Successfully init PCI name %s bus %u dev %u func %u vec %u\n", dev_spec->name, dev_spec->bus, dev_spec->dev, dev_spec->func, vec);
                 // use MSI now
             //resp.status = vec;
             break;
@@ -204,12 +204,12 @@ pisces_ctrl_init(void)
 /*
     nk_thread_id_t tid;
     if((ret = nk_thread_start(pisces_drequest_thread, (void*)t_arg, 0, 1, TASK_THREAD_STACK_SIZE, &tid, -1))) {
-        printk("Failed to launch a task thread for memcached server\n");
+        INFO_PRINT("Failed to launch a task thread for memcached server\n");
     }
     nk_thread_name(tid, "pisces_drequest");
 */
 	if (xbuf_desc == NULL) {
-		printk("Could not initialize cmd/ctrl xbuf channel\n");
+		INFO_PRINT("Could not initialize cmd/ctrl xbuf channel\n");
 		return -1;
 	}
 
