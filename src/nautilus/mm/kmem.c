@@ -810,7 +810,7 @@ retry:
         if(hard_drequest(local_domain->zone, order) >= HARD_PREFETCH_TRIES) {
             return NULL;
         } else {
-            KMEM_PRINT("Try hard drequest upon malloc %lu order %lu inprogress %u\n", size, order, local_domain->zone->drequest_inprogress);
+            KMEM_PRINT("Waiting for drequest response on malloc with orsize %lu der %lu inprogress %u\n", size, order, local_domain->zone->drequest_inprogress);
             //KMEM_PRINT("rdtsc %lu\n", rdtsc());
 
             //nk_sched_yield(0);
