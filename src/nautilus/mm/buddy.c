@@ -928,7 +928,7 @@ buddy_alloc (struct buddy_memzone *zone,
         mp->free_size -= 1UL << block->order;
 
         update_estimation(zone);
-        if(zone->drequest_inprogress 
+        if(zone->drequest_inprogress == 0 
             && zone->mem_requirement >= zone->mem_size) {
             notify_drequest(0);
         }
