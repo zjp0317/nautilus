@@ -434,7 +434,7 @@ has_redundant_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, 
 }
 
 static ssize_t 
-check_capacity (struct buddy_memzone * zone, ulong_t order)
+check_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, ulong_t order)
 {
 
     ASSERT(notify_drequest != NULL);
@@ -892,7 +892,7 @@ buddy_alloc (struct buddy_memzone *zone,
         while (j > order) {
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
             zone->avail[j].capacity -= 1;
-            check_capacity(zone, j);
+            check_capacity(zone, mp, j);
 #endif
             --j;
             buddy_block = (struct block *)((ulong_t)block + (1UL << j));
@@ -921,7 +921,7 @@ buddy_alloc (struct buddy_memzone *zone,
 
         while(j >= zone->min_order) {
             zone->avail[j].capacity -= 1 << i++;
-            check_capacity(zone, j);
+            check_capacity(zone, mp, j);
             --j;
         }
 
