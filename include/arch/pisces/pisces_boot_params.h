@@ -101,10 +101,10 @@ struct pisces_boot_params {
     u64 block_size;
 
     // prefetch
-    u64 prefetch_info;
-    u32 host_mem_apic;
-    u32 host_mem_vector;
-    u32 host_mem_irq;
+    u64 drequest_info;
+    u32 host_drequest_apic;
+    u32 host_drequest_vector;
+    u32 host_drequest_irq;
     //u32 new_mem_blocks;
     //u64 new_mem_range[0];
 } __attribute__((packed));

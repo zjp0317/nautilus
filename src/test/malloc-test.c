@@ -64,6 +64,25 @@ handle_malloc_test1 (char * buf, void * priv)
 
     for(i = 0; i < runs; i++) {
         size_t tmp = gettime();
+        p[i] = malloc(MAX_PSIZE >> 10);
+        if(p[i] == NULL) {
+            INFO_PRINT("failed allocation at runs %d\n", i);
+            failed++;
+        }
+        mtime += gettime() - tmp;
+        GAP;
+    }
+    for(i = 0; i < runs; i++) {
+        if(p[i] == NULL)
+            continue;
+        size_t tmp = gettime();
+        free(p[i]);
+        ftime += gettime() - tmp;
+    }
+    INFO_PRINT("************************\n");
+    /***********/
+    for(i = 0; i < runs; i++) {
+        size_t tmp = gettime();
         p[i] = malloc(MAX_PSIZE);
         if(p[i] == NULL) {
             INFO_PRINT("failed allocation at runs %d\n", i);
@@ -79,6 +98,27 @@ handle_malloc_test1 (char * buf, void * priv)
         free(p[i]);
         ftime += gettime() - tmp;
     }
+    /***********/
+    INFO_PRINT("************************\n");
+    for(i = 0; i < runs; i++) {
+        size_t tmp = gettime();
+        p[i] = malloc(MAX_PSIZE >> 1);
+        if(p[i] == NULL) {
+            INFO_PRINT("failed allocation at runs %d\n", i);
+            failed++;
+        }
+        mtime += gettime() - tmp;
+        GAP;
+    }
+    for(i = 0; i < runs; i++) {
+        if(p[i] == NULL)
+            continue;
+        size_t tmp = gettime();
+        free(p[i]);
+        ftime += gettime() - tmp;
+    }
+    runs *= 3;
+
     free(p);
     INFO_PRINT("time = %lu\n malloc(%lu) time = %lu\n free(%lu) time = %lu\n faled = %lu\n", gettime() - begin, runs, mtime, runs, ftime, failed);
     return 0;

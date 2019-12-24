@@ -74,11 +74,18 @@ cmd_handler(u8    * data,
         }
         case ENCLAVE_CMD_ADD_MEM: {
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
-            printk("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
-            ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
-            if(ret != 0) {
-                printk("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+            if( mem_cmd->size == 0) {
+                uint8_t flags = spin_lock_irq_save(&(numa_info->domains[0]->zone->lock));
+                numa_info->domains[0]->zone->drequest_inprogress = 0;
+                spin_unlock_irq_restore(&(numa_info->domains[0]->zone->lock), flags);
+                printk("Pisces cannot provide anymore mem now\n");
+            } else {
+                printk("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
+                if(ret != 0) {
+                    printk("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
+                }
             }
 #if 0 // test codes to verify the buddy states 
             zone_mem_show(numa_info->domains[0]->zone);

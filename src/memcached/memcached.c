@@ -16,6 +16,11 @@
 #include "memcached.h"
 #endif
 
+int zjpflag = -1;
+size_t malloccost = 0;
+size_t imalloccost = 0;
+size_t freecost = 0;
+
 struct settings settings;
 static bool stop_main_loop = false;
 
@@ -734,7 +739,8 @@ static int process_bin_get(conn *c) {
     it = item_get(key, nkey, c, DO_UPDATE);
 
     if(it) {
-#ifdef __Nautilus__
+#if 1
+//#ifdef __Nautilus__
         /*
          * Due to the outdated lwip version supported in nautilus,
          * herein, use send() instead of sendmsg(), to compact all data into a single iov.
@@ -942,7 +948,9 @@ void drive_machine(conn *c) {
             reset_cmd_handler(c); 
             continue;
         } else { // done with this conn
+            zjpflag = 0;
             fprintf(stderr, "Close connection %p socket %d\n", c, c->sfd);
+            fprintf(stderr, "Close connection malloccost %lu imalloccost %lu, freecost %lu\n", malloccost,imalloccost, freecost);
             conn_close(c);
             break;
         }
@@ -1052,9 +1060,16 @@ int main() {
         struct sockaddr_in client_addr; 
         socklen_t client_addrlen = sizeof(client_addr);
         fprintf(stderr, "Waiting for clients\n");
+        zjpflag = 1;
         conn_sock = accept(acc_sock, (struct sockaddr*)&client_addr, &client_addrlen);
         if(conn_sock >= 0) {
             fprintf(stderr, "new conn %d arrives\n", conn_sock); 
+#if 1
+            int flags = 1;
+            if(0 != setsockopt(conn_sock, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags))) {
+                fprintf(stderr, "Failed to set TCP_NODELAY err %d\n", errno);
+            }
+#endif
             dispatch_conn_new(conn_sock, DATA_BUFFER_SIZE);
         }
     }

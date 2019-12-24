@@ -27,17 +27,17 @@
 #include <nautilus/spinlock.h>
 
 #define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
+//#define NAUT_CONFIG_PISCES_DYNAMIC_INTERNAL 1 // TODO move this to menuconfig
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-/* CAPACITY_FACTOR:
- *  Each order must have its capacity
- *   >= (CAPACITY_FACTOR * allocated).
- *  The larget this factor is, the more aggressive
- *  the prefetching is.
- */
-#define CAPACITY_FACTOR  ((double)(1))
 
-#define HARD_PREFETCH_TRIES 10 // when malloc return NULL, try 10 times to fetch memory
+#define CAPACITY_FACTOR  2 // capacity should be larger than allocated >> factor
+
+#define HARD_PREFETCH_TRIES 10 // when malloc fails, try 10 times to fetch memory
+
+#define JACOBSON_ALPHA      3 // 1 / (1<<3)
+#define JACOBSON_BETA       2 // 1 / (1<<2)
+//#define REQ_FACTOR          3 // requirement should be less than size - (size >> 3),  87.5% of total size 
 
 struct block_freelist {
     struct list_head    link;
@@ -45,11 +45,11 @@ struct block_freelist {
     size_t              capacity;
 };
 
-void buddy_prefetch_init (void (*func)());
+void buddy_drequest_init (void (*func)());
 
 struct buddy_memzone;
 
-int hard_prefetch(struct buddy_memzone*);
+int hard_drequest(struct buddy_memzone*, size_t order);
 #endif
 
 
@@ -65,7 +65,12 @@ struct buddy_memzone {
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     struct block_freelist * avail;
-    ulong_t  mem_dynamic_inprogress;
+    ulong_t  drequest_inprogress;
+    ulong_t  mem_usage;
+    ulong_t  mem_estimation;
+    ulong_t  mem_variation;
+    ulong_t  mem_requirement;
+    ulong_t  mem_size;
 #else
     struct list_head * avail;   /* one free list for each block size,
                                  * indexed by block order:
@@ -127,6 +132,9 @@ struct buddy_mempool {
                                  * one bit for each 2^min_order block: 
                                  *    1 = block is VISITED
                                  */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    ulong_t    free_size;
+#endif
 
 #ifdef LARGE_OBJ_MAP 
     uint8_t     *large_obj_map; /* each entry stores the order value of a large object
@@ -158,7 +166,7 @@ struct buddy_mempool * buddy_init_pool (struct buddy_memzone * zone, ulong_t bas
 void insert_mempool (struct buddy_memzone * zone, struct buddy_mempool * pool);
 void buddy_cleanup_pool(struct buddy_mempool *mp);
 struct buddy_mempool * buddy_create_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
-int buddy_remove_pool (struct buddy_mempool * mp);
+int buddy_remove_pool (struct buddy_mempool * mp, char has_lock);
 
 int zone_mem_show(struct  buddy_memzone * zone);
 
@@ -166,10 +174,14 @@ inline ulong_t get_block_order (struct buddy_mempool *mp, void *block);
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 void buddy_free (char is_new_mem, struct buddy_mempool * mp, void * addr, ulong_t order);
+void buddy_free_internal (char is_new_mem, struct buddy_mempool * mp, void * addr, ulong_t order);
 #else
 void buddy_free (struct buddy_mempool * mp, void * addr, ulong_t order);
+void buddy_free_internal (struct buddy_mempool * mp, void * addr, ulong_t order);
 #endif
 void * buddy_alloc (struct buddy_memzone * zone, ulong_t order);
+
+void * buddy_alloc_internal (struct buddy_memzone * zone, ulong_t order);
 
 int  buddy_sanity_check(struct buddy_mempool *mp);
 

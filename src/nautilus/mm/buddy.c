@@ -40,7 +40,7 @@
 #endif
 
 #define BUDDY_DEBUG(fmt, args...) DEBUG_PRINT("BUDDY: " fmt, ##args)
-#define BUDDY_PRINT(fmt, args...) printk("BUDDY: " fmt, ##args)
+#define BUDDY_PRINT(fmt, args...) INFO_PRINT("BUDDY: " fmt, ##args)
 #define BUDDY_WARN(fmt, args...)  WARN_PRINT("BUDDY: " fmt, ##args)
 
 /**
@@ -294,12 +294,12 @@ buddy_create (uint_t  node_id,
         return NULL;
     }
 
-    zone = kmem_malloc_internal(sizeof(struct buddy_memzone));
+    zone = kmem_mallocz_internal(sizeof(struct buddy_memzone));
     if (!zone) {
         ERROR_PRINT("Could not allocate memzone\n");
         return NULL;
     }
-    memset(zone, 0, sizeof(struct buddy_memzone));
+    //memset(zone, 0, sizeof(struct buddy_memzone));
 
     zone->max_order = max_order;
     zone->min_order = min_order;
@@ -346,48 +346,129 @@ insert_mempool(struct buddy_memzone * zone,
 }
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-static void (*notify_prefetch)() = NULL;
+
+#define DREQUEST_PAGESIZE_SHIFT     12  // 4kb page
+#define DREQUEST_PAGESIZE_MASK      ((1UL << DREQUEST_PAGESIZE_SHIFT)- 1) // 4kb page
+#define DREQUEST_PAGEUNIT_SHIFT     9   //  12 + 9, 2MB, 12 bits can represent 8GB 
+
+static void (*notify_drequest)(ulong_t) = NULL;
 
 void
-buddy_prefetch_init (void (*func)())
+buddy_drequest_init (void (*func)(ulong_t))
 {
-    notify_prefetch = func;
-    printk("Init prefetch handler addr %p\n", func);
+    notify_drequest = func;
+    printk("Init drequest handler addr %p\n", func);
 }
 
-int hard_prefetch (struct buddy_memzone * zone)
+inline int soft_drequest (struct buddy_memzone * zone) 
+{
+    if(zone->drequest_inprogress == 0) {
+        zone->drequest_inprogress = 1; // protected by zone lock anyway
+        notify_drequest(0); 
+    }
+
+    return 0;
+}
+
+
+inline int hard_drequest (struct buddy_memzone * zone,
+        size_t order)
 {
     ulong_t flags;
     int ret;
 
     flags = spin_lock_irq_save(&(zone->lock));
-        ret = ++(zone->mem_dynamic_inprogress);
-        notify_prefetch();
+
+    ret = ++(zone->drequest_inprogress);
+
+    if(ret == 1) {
+        notify_drequest(0);
+    }
+
     spin_unlock_irq_restore(&(zone->lock), flags);
 
     return ret;
 }
 
-void
-check_prefetch (struct buddy_memzone * zone, ulong_t order)
+static void 
+update_estimation (struct buddy_memzone * zone)
 {
-    ASSERT(notify_prefetch != NULL);
+    // Jacobson's algorithm
+    if(zone->mem_estimation != 0) {
+        ulong_t error = (zone->mem_usage > zone->mem_estimation) ? zone->mem_usage - zone->mem_estimation
+                : zone->mem_estimation - zone->mem_usage;
+        zone->mem_estimation = zone->mem_estimation - ( zone->mem_estimation >> JACOBSON_ALPHA)
+                + (zone->mem_usage >> JACOBSON_ALPHA);
+        zone->mem_variation = zone->mem_variation - (zone->mem_variation >> JACOBSON_BETA)
+                + (error >> JACOBSON_BETA); 
+    } else {
+        zone->mem_estimation = zone->mem_usage << JACOBSON_ALPHA;
+        zone->mem_variation = zone->mem_usage << 1;
+
+    }
+    zone->mem_requirement = zone->mem_estimation + (zone->mem_variation << JACOBSON_BETA);
+
+    //BUDDY_PRINT(" Mem usage: %lu, estimation %lu, requirement %lu, size %lu\n",
+      //  zone->mem_usage, zone->mem_estimation, zone->mem_requirement, zone->mem_size);
+
+/*
+    if(zone->mem_requirement >= zone->mem_size) {
+    //if(zone->mem_requirement + (zone->mem_size >> REQ_FACTOR) >= zone->mem_size) {
+        soft_drequest(zone);
+    }
+    */
+}
+
+static inline int
+has_redundant_bytes (struct buddy_memzone * zone)
+{
+    return zone->mem_requirement < zone->mem_size;
+}
+
+
+static inline int
+has_redundant_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, ulong_t order)
+{
+    return (zone->avail[order].capacity - (zone->avail[order].allocated >> CAPACITY_FACTOR)) 
+                > (1UL << (mp->pool_order - order)); 
+}
+
+static ssize_t 
+check_capacity (struct buddy_memzone * zone, ulong_t order)
+{
+
+    ASSERT(notify_drequest != NULL);
     ASSERT(zone != NULL);
 
-    if(zone->mem_dynamic_inprogress == 0) {
-        // no in-progress prefetching 
-        double ideal_capacity = (double)zone->avail[order].allocated * CAPACITY_FACTOR;
-        if((double)zone->avail[order].capacity < ideal_capacity) { 
-            // need prefetch 
-            // To ensure that one prefetch is 'sufficient':
+#if 0
+    if(zone->avail[order].capacity < 1
+            && zone->avail[order].allocated > 0) {
+        BUDDY_PRINT("Prefetch due to order %2lu: %lu allocated, %lu capacity\n", 
+                order, zone->avail[order].allocated, zone->avail[order].capacity);
+
+        soft_drequest(zone);
+    }
+
+    return (ssize_t)zone->avail[order].capacity - (ssize_t)zone->avail[order].allocated;
+#else
+    //if(__sync_val_compare_and_swap(&zone->drequest_inprogress, 0, 1) == 0 ){
+    if(zone->drequest_inprogress == 0) {
+        // no in-progress drequesting 
+        //double ideal_capacity = (double)zone->avail[order].allocated * CAPACITY_FACTOR;
+        //if((double)zone->avail[order].capacity < ideal_capacity) { 
+        if((zone->avail[order].allocated > 0 && zone->avail[order].capacity == 0)
+            || (zone->avail[order].capacity < (zone->avail[order].allocated >> CAPACITY_FACTOR))) { 
+            // need drequest 
+            // To ensure that one drequest is 'sufficient':
             //  If Factor >= 1, we need to increase this capacit by at least 1+Factor 
             //  If Factor < 1, we only need to increase this capacity by 2
-            // Thus, for most cases, prefetching 1 pool is enough
+            // Thus, for most cases, drequesting 1 pool is enough
             BUDDY_PRINT("Prefetch due to order %2lu: %lu allocated, %lu capacity\n", order, zone->avail[order].allocated, zone->avail[order].capacity);
-            zone->mem_dynamic_inprogress = 1;
-            notify_prefetch(); 
+            zone->drequest_inprogress = 1; // protected by zone lock anyway
+            notify_drequest(0); 
         }
     }
+#endif
 }
 #endif
 
@@ -424,6 +505,10 @@ buddy_init_pool(struct buddy_memzone * zone,
     mp->min_order       = zone->min_order;
     mp->zone            = zone;
     mp->num_free_blocks = 0;
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    mp->free_size = 0;
+#endif
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
@@ -516,6 +601,9 @@ buddy_create_pool(struct buddy_memzone * zone,
     mp->min_order       = zone->min_order;
     mp->zone            = zone;
     mp->num_free_blocks = 0;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    mp->free_size = 0;
+#endif
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
@@ -549,19 +637,25 @@ err:
  *   Removal of the mempool used for boot should not be allowed
  */
 int
-buddy_remove_pool(struct buddy_mempool * mp)
+buddy_remove_pool(struct buddy_mempool * mp, char has_lock)
 {
     uint8_t flags = 0;
     struct buddy_memzone *zone = mp->zone;
 
-    flags = spin_lock_irq_save(&(zone->lock));
+    if(has_lock == 0)
+        flags = spin_lock_irq_save(&(zone->lock));
 
-    // zjp: TODO current code only checks the 1st block !!
     struct block * block = (struct block *)(mp->base_addr);
-
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    if(mp->free_size < 1UL << mp->pool_order) {
+        zone->drequest_inprogress = 0;
+#else
+    // zjp: TODO current code only checks the 1st block !!
     if (!is_available(mp, block)) {
-        ERROR_PRINT("Trying to remove an in-use memory pool %p base_addr %lx\n", mp, mp->base_addr);
-        spin_unlock_irq_restore(&(zone->lock), flags);
+#endif
+        BUDDY_DEBUG("Trying to remove an in-use memory pool %p base_addr %lx\n", mp, mp->base_addr);
+        if(has_lock == 0)
+            spin_unlock_irq_restore(&(zone->lock), flags);
         return -1;
     }
 
@@ -575,11 +669,17 @@ buddy_remove_pool(struct buddy_mempool * mp)
     while(j >= zone->min_order) {
         zone->avail[j--].capacity -= 1 << i++;
     }
+    zone->mem_size -= 1UL << mp->pool_order;
+
+    zone->drequest_inprogress = 0;
 #endif
 
-    spin_unlock_irq_restore(&(zone->lock), flags);
+    if(has_lock == 0)
+        spin_unlock_irq_restore(&(zone->lock), flags);
 
-    buddy_cleanup_pool(mp);
+    //buddy_cleanup_pool(mp);
+
+    //BUDDY_PRINT("Successfully removed mempool base_addr %lx pool_order %u\n", mp->base_addr, mp->pool_order);
 
     return 0;
 }
@@ -598,7 +698,7 @@ buddy_remove_pool(struct buddy_mempool * mp)
  *       Failure: NULL
  */
 void *
-buddy_alloc (struct buddy_memzone *zone, ulong_t order)
+buddy_alloc_internal (struct buddy_memzone *zone, ulong_t order)
 {
     ulong_t j;
     uint8_t flags = 0;
@@ -622,6 +722,16 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
     }
 
     flags = spin_lock_irq_save(&(zone->lock));
+#if 0
+    size_t ss = 0;
+    extern int zjpflag;
+    extern size_t imalloccost;
+    #include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(zjpflag == 1) {
+        ss = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
 
     for (j = order; j <= zone->max_order; j++) {
 
@@ -644,10 +754,10 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         if(order >= LARGE_OBJ_ORDER) {
             //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
             if((ulong_t)block & LARGE_OBJ_MASK) {
-                BUDDY_PRINT("Large object %p order %d start at weird offset! Break assumption!\n", block, order);
+                BUDDY_PRINT("%s: Large object %p order %d start at weird offset! Break assumption!\n",__FUNCTION__,block, order);
             } else {
                 mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = order;
-                }
+            }
         }
 #endif
 
@@ -656,11 +766,10 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
 
         /* Trim if a higher order block than necessary was allocated */
-
         while (j > order) {
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
             zone->avail[j].capacity -= 1;
-            check_prefetch(zone, j);
+            //check_capacity(zone, j);
 #endif
             --j;
             buddy_block = (struct block *)((ulong_t)block + (1UL << j));
@@ -689,10 +798,12 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         
         while(j >= zone->min_order) {
             zone->avail[j].capacity -= 1 << i++;
-            check_prefetch(zone, j);
+            //check_capacity(zone, j);
             --j;
         }
 
+        zone->mem_usage += 1UL << block->order;
+        //update_estimation(zone);
 #endif
         mp->num_free_blocks -= (1UL << (order - zone->min_order));
 
@@ -700,7 +811,137 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
         spin_unlock_irq_restore(&(zone->lock), flags);
         return block;
     }
+#if 0
+    if(zjpflag == 1) {
+        ss = rdtsc() - ss;
+        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
+        //BACKTRACE(printk, 3);
+        imalloccost += ss;
+    }
+#endif
 
+    spin_unlock_irq_restore(&(zone->lock), flags);
+    BUDDY_DEBUG("FAILED TO ALLOCATE from zone %p - RETURNING  NULL\n", zone);
+
+    return NULL;
+}
+
+void *
+buddy_alloc (struct buddy_memzone *zone,
+        ulong_t order)
+{
+    ulong_t j;
+    struct list_head *list;
+    struct block *block;
+    struct block *buddy_block;
+    uint8_t flags = 0;
+
+    if(!zone) return NULL;
+//    ASSERT(zone);
+
+    BUDDY_DEBUG("BUDDY ALLOC on zone: %p order: %lu\n", zone, order);
+    if (order > zone->max_order) {
+        BUDDY_DEBUG("order is too big\n");
+        return NULL;
+    }
+
+    /* Fixup requested order to be at least the minimum supported */
+    if (order < zone->min_order) {
+        order = zone->min_order;
+        BUDDY_DEBUG("order expanded to %lu\n", order);
+    }
+
+    //spin_lock(&(zone->lock));
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    for (j = order; j <= zone->max_order; j++) {
+
+        /* Try to allocate the first block in the order j list */
+        list = &zone->avail[j];
+
+        if (list_empty(list)) {
+            BUDDY_DEBUG("Skipping order %lu as the list is empty\n",j);
+            continue;
+        }
+
+        block = list_first_entry(list, struct block, link);
+        list_del_init(&block->link);
+
+        struct buddy_mempool* mp = block->mempool;
+
+        ulong_t block_id = block_to_id(mp, block);
+        set_order_bit(mp, block_id, order); // set order bit 
+#ifdef LARGE_OBJ_MAP
+        if(order >= LARGE_OBJ_ORDER) {
+            //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
+            if((ulong_t)block & LARGE_OBJ_MASK) {
+                BUDDY_PRINT("%s: Large object %p order %d start at weird offset! Break assumption!\n",__FUNCTION__,block, order);
+            } else {
+                mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = order;
+            }
+        }
+#endif
+
+        mark_allocated(mp, block_id);
+
+        BUDDY_DEBUG("Found block %p at order %lu\n",block,j);
+
+        /* Trim if a higher order block than necessary was allocated */
+
+        while (j > order) {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+            zone->avail[j].capacity -= 1;
+            check_capacity(zone, j);
+#endif
+            --j;
+            buddy_block = (struct block *)((ulong_t)block + (1UL << j));
+            buddy_block->order = j;
+
+            buddy_block->mempool = mp;
+            block_id = block_to_id(mp, buddy_block);
+            mark_available(mp, block_id);
+
+            BUDDY_DEBUG("Inserted buddy block %p into order %lu\n",buddy_block,j);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+            list_add(&buddy_block->link, (struct list_head*)&zone->avail[j]);
+#else
+            list_add(&buddy_block->link, &zone->avail[j]);
+#endif
+        }
+
+        block->order = j;
+        block->mempool = NULL;
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        zone->avail[j].allocated += 1;
+
+        // update capacities for smaller orders
+        ulong_t i = 0;
+
+        while(j >= zone->min_order) {
+            zone->avail[j].capacity -= 1 << i++;
+            check_capacity(zone, j);
+            --j;
+        }
+
+        zone->mem_usage += 1UL << block->order;
+        mp->free_size -= 1UL << block->order;
+
+        update_estimation(zone);
+        if(zone->drequest_inprogress 
+            && zone->mem_requirement >= zone->mem_size) {
+            notify_drequest(0);
+        }
+#endif
+        mp->num_free_blocks -= (1UL << (order - zone->min_order));
+
+        BUDDY_DEBUG("Returning block %p which is in memory pool %p-%p\n",block,mp->base_addr,mp->base_addr+(1ULL << mp->pool_order));
+        //spin_unlock(&(zone->lock));
+        spin_unlock_irq_restore(&(zone->lock), flags);
+        return block;
+    }
+
+    //spin_unlock(&(zone->lock));
     spin_unlock_irq_restore(&(zone->lock), flags);
     BUDDY_DEBUG("FAILED TO ALLOCATE from zone %p - RETURNING  NULL\n", zone);
 
@@ -711,7 +952,7 @@ buddy_alloc (struct buddy_memzone *zone, ulong_t order)
  * Returns a block of memory to the buddy system memory allocator.
  */
 void
-buddy_free(
+buddy_free_internal(
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     char is_new_mem,
 #endif
@@ -758,7 +999,7 @@ buddy_free(
     if(order >= LARGE_OBJ_ORDER) {
         //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
         if((ulong_t)block & LARGE_OBJ_MASK) {
-            BUDDY_PRINT("Large object %p order %d start at weird offset! Break assumption!\n", block, order);
+            BUDDY_PRINT("%s: Large object %p order %d start at weird offset! Break assumption!\n",__FUNCTION__,block, order);
         } else {
             mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = 0;
         }
@@ -770,9 +1011,11 @@ buddy_free(
     if(is_new_mem == 0) {
         // only update allocated when this free() is actually for an alloc()
         zone->avail[order].allocated -= 1;
+        zone->mem_usage -= 1UL << order;
     } else {
         // new pool arrives, reset inprogress flag
-        zone->mem_dynamic_inprogress = 0;
+        zone->drequest_inprogress = 0;
+        zone->mem_size += 1UL << order;
     }
 
     ulong_t i = 0, j = order;
@@ -838,6 +1081,214 @@ buddy_free(
     }
 }
 
+void
+buddy_free(
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    char is_new_mem,
+#endif
+    //!  Use mempool directly instead of memzone  
+    struct buddy_mempool *  mp,
+    //!  Address of memory block to free.
+    void *        addr,
+    //! Size of the memory block (2^order bytes).
+    ulong_t order
+)
+{
+    uint8_t flags = 0;
+
+    ASSERT(mp);
+    ASSERT(order <= mp->pool_order);
+    ASSERT(!((uint64_t)addr % (1ULL<<order)));  // aligned to own size only
+
+    BUDDY_DEBUG("BUDDY FREE on memory pool: %p addr=%p base=%p order=%lu\n",mp,addr,mp->base_addr, order);
+
+    /* Fixup requested order to be at least the minimum supported */
+    if (order < mp->min_order) {
+        order = mp->min_order;
+        BUDDY_DEBUG("updated order to %lu\n",order);
+    }
+
+    ASSERT((uint64_t)addr>=(uint64_t)(mp->base_addr) &&
+	   (uint64_t)addr<(uint64_t)(mp->base_addr+(1ULL<<mp->pool_order)));
+
+    ASSERT(order<=mp->pool_order);
+
+    /* Overlay block structure on the memory block being freed */
+    struct block * block = (struct block *) addr;
+    ulong_t block_id = block_to_id(mp, block);
+
+    ASSERT(!is_available(mp, block));
+
+    struct buddy_memzone* zone = mp->zone;
+    mp->num_free_blocks += (1UL << (order - zone->min_order));
+
+    //spin_lock(&(zone->lock));
+    flags = spin_lock_irq_save(&(zone->lock));
+
+    clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
+#ifdef LARGE_OBJ_MAP
+    if(order >= LARGE_OBJ_ORDER) {
+        //ASSERT((ulong_t)block & LARGE_OBJ_MASK);
+        if((ulong_t)block & LARGE_OBJ_MASK) {
+            BUDDY_PRINT("%s: Large object %p order %d start at weird offset! Break assumption!\n",__FUNCTION__,block, order);
+        } else {
+            mp->large_obj_map[((ulong_t)block - (ulong_t)mp->base_addr) >> LARGE_OBJ_ORDER] = 0;
+        }
+    }
+#endif
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    // a buddy free could be used for adding mem 
+    if(is_new_mem == 0) {
+        // only update allocated when this free() is actually for an alloc()
+        zone->avail[order].allocated -= 1;
+        zone->mem_usage -= 1UL << order;
+    } else {
+        // new pool arrives, reset inprogress flag
+        zone->drequest_inprogress = 0;
+        zone->mem_size += 1UL << order;
+    }
+
+    mp->free_size += 1UL << order;
+
+    ulong_t i = 0, j = order;
+    int remove = 1;
+
+    update_estimation(zone);
+    if(has_redundant_bytes(zone) == 0) {
+        remove = 0;
+    }
+
+    while(j >= zone->min_order) {
+        zone->avail[j].capacity += 1 << i++;
+        if(remove == 1
+                && has_redundant_capacity(zone, mp, j) == 0) {
+            remove = 0;
+        }
+        j--;
+    }
+#endif
+    /* Coalesce as much as possible with adjacent free buddy blocks */
+    while (order < mp->pool_order) {
+        /* Determine our buddy block's address */
+        struct block * buddy = find_buddy(mp, block, order);
+
+        BUDDY_DEBUG("buddy at order %lu is %p\n",order,buddy);
+
+        /* Make sure buddy is available and has the same size as us */
+        if (!is_available(mp, buddy)) {
+            BUDDY_DEBUG("buddy not available\n");
+            break;
+        }
+
+        if (buddy->order != order) {
+            BUDDY_DEBUG("buddy available but has order %lu\n",buddy->order);
+            break;
+        }
+
+        BUDDY_DEBUG("buddy merge\n");
+
+        /* OK, we're good to go... buddy merge! */
+        list_del_init(&buddy->link);
+        if (buddy < block) {
+            block = buddy;
+        }
+        ++order;
+        block->order = order;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        zone->avail[order].capacity += 1;
+        if(remove == 1
+                && has_redundant_capacity(zone, mp, order) == 0) {
+            remove = 0;
+        }
+#endif
+    }
+
+    /* Add the (possibly coalesced) block to the appropriate free list */
+    block->order = order;
+    block->mempool = mp;
+
+    BUDDY_DEBUG("End of search: block=%p order=%lu pool_order=%lu block->order=%lu\n",block,order,mp->pool_order,block->order);
+
+    mark_available(mp, block_id);
+
+    BUDDY_DEBUG("End of mark: block=%p order=%lu pool_order=%lu block->order=%lu\n",block,order,mp->pool_order,block->order);
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    list_add(&block->link, (struct list_head*)&zone->avail[order]);
+
+    while(remove == 1 && order <= mp->pool_order) {
+        if(has_redundant_capacity(zone, mp, order) == 0) {
+            remove = 0;
+            break;
+        }
+        order++;
+    }
+
+    if (remove == 1 && zone->drequest_inprogress == 0) { 
+        // probably ok to remove one pool
+#if 1
+        // remove by IPI from pisces
+        struct buddy_mempool* pool = NULL;
+
+        if(mp->free_size >= 1UL << mp->pool_order) {
+            // simply free current one
+            pool = mp;
+        } else {
+            // traverse to find an unused pool
+            list_for_each_entry(pool, &(zone->mempools), link) {
+                if(pool->free_size >= 1UL << pool->pool_order) {
+                    break;
+                }
+            }
+        }
+        if(pool != NULL) {
+            ulong_t request_info = pool->base_addr & ~DREQUEST_PAGESIZE_MASK;
+            request_info |= (1UL << pool->pool_order) >> (DREQUEST_PAGESIZE_SHIFT + DREQUEST_PAGEUNIT_SHIFT); 
+            //BUDDY_PRINT("Notify removal of pool with base_addr %lx\n", pool->base_addr);
+
+            zone->drequest_inprogress = 1;
+            notify_drequest(request_info);
+            spin_unlock_irq_restore(&(zone->lock), flags);
+            return;
+        }
+#else 
+        struct buddy_mempool* pool = NULL;
+        if(0 == buddy_remove_pool(mp, 1)) {
+            pool = mp;
+        } else {
+            list_for_each_entry(pool, &(zone->mempools), link) {
+                if(0 == buddy_remove_pool(mp, 1)) {
+                    break;
+                }
+            }
+        }
+
+        if(pool != NULL) {
+            ulong_t request_info = pool->base_addr & ~DREQUEST_PAGESIZE_MASK;
+            request_info |= (1UL << pool->pool_order) >> (DREQUEST_PAGESIZE_SHIFT + DREQUEST_PAGEUNIT_SHIFT); 
+            notify_drequest(request_info);
+            buddy_cleanup_pool(pool);
+            spin_unlock_irq_restore(&(zone->lock), flags);
+            return;
+        }
+#endif
+    }
+#else
+    list_add(&block->link, &zone->avail[order]);
+#endif
+
+    //spin_unlock(&(zone->lock));
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    BUDDY_DEBUG("block at %p of order %lu being made available\n",block,block->order);
+
+    if (block->order == -1) { 
+        ERROR_PRINT("FAIL: block order went nuts\n");
+        ERROR_PRINT("mp->base_addr=%p mp->num_blocks=%lu  mp->min_order=%lu, block=%p\n",mp->base_addr,mp->num_blocks, mp->min_order,block);
+        panic("Block order\n");
+    }
+}
 /*
   Sanity-checks and gets statistics of the buddy pool
  */

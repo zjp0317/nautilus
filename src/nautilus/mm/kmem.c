@@ -64,6 +64,8 @@
 #define KMEM_ERROR_BACKTRACE() BACKTRACE(KMEM_ERROR,3)
 	    
 
+
+
 /**
  * This specifies the minimum sized memory block to request from the underlying
  * buddy system memory allocator, 2^MIN_ORDER bytes. It must be at least big
@@ -87,6 +89,7 @@ static unsigned long kmem_bytes_allocated_regular = 0;
 
 // zjp
 static unsigned long kmem_bytes_allocated_regular_peak = 0;
+static unsigned long kmem_bytes_allocated_internal_peak = 0;
 
 
 /* This is the list of all memory zones */
@@ -165,13 +168,15 @@ static inline uint64_t unit_hash_hash(const void *ptr)
 {
     uint64_t n = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
 
+    n = n >> 27; // array index 
+/*
     n =  n ^ (n>>1) ^ (n<<2) ^ (n>>3) ^ (n<<5) ^ (n>>7)
         ^ (n<<11) ^ (n>>13) ^ (n<<17) ^ (n>>19) ^ (n<<23) 
         ^ (n>>29) ^ (n<<31) ^ (n>>37) ^ (n<<41) ^ (n>>43)
         ^ (n<<47) ^ (n<<53) ^ (n>>59) ^ (n<<61);
 
     n = n % unit_hash_num_entries;
-
+*/
     KMEM_DEBUG("hash of %p returns 0x%lx\n",ptr, n);
 
     return n;
@@ -186,7 +191,11 @@ static inline struct kmem_unit_hdr * unit_hash_find_entry(const void *ptr)
   uint64_t unit_start = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
   unit_start |= 0x1; // set the "offset bit" 
   uint64_t start = unit_hash_hash(ptr);
-  
+
+  if(unit_hash_entries[start].mempool == NULL)
+      return 0;
+  return &unit_hash_entries[start];
+/*  
   for (i = start; i < unit_hash_num_entries; i++) { 
       //if (unit_hash_entries[i].unit_addr == unit_start) {
       if (unit_hash_entries[i].unit_addr == unit_start && unit_hash_entries[i].mempool != NULL) {
@@ -201,6 +210,7 @@ static inline struct kmem_unit_hdr * unit_hash_find_entry(const void *ptr)
           return &unit_hash_entries[i];
       }
   }
+  */
   return 0;
 }
 
@@ -215,7 +225,10 @@ static inline struct kmem_unit_hdr * unit_hash_alloc(void *ptr)
   uint64_t unit_start = ((uint64_t) ptr) & KMEM_UNIT_MASK; // just in case the ptr is not aligned
   unit_start |= 0x1; // set the "offset bit" 
   uint64_t start = unit_hash_hash(ptr);
-  
+
+  return &unit_hash_entries[start];
+
+/*
   for (i = start; i < unit_hash_num_entries; i++) { 
       if (__sync_bool_compare_and_swap(&unit_hash_entries[i].unit_addr, 0, unit_start)) {
           KMEM_DEBUG("Allocation scanned %lu entries\n", i-start+1);
@@ -228,13 +241,14 @@ static inline struct kmem_unit_hdr * unit_hash_alloc(void *ptr)
           return &unit_hash_entries[i];
       }
   }
+  */
   return 0;
 }
 
 static inline void unit_hash_free_entry(struct kmem_unit_hdr *u)
 {
     u->mempool = NULL;
-    __sync_fetch_and_and (&u->unit_addr, 0);
+    //__sync_fetch_and_and (&u->unit_addr, 0);
 }
 
 static inline int unit_hash_free(void *ptr)
@@ -327,9 +341,9 @@ kmem_add_memory (struct buddy_mempool * mp,
     
     for (i = 0; i < num_chunks; i++) { 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        buddy_free(1, mp, addr+i*chunk_size, chunk_order);
+        buddy_free_internal(1, mp, addr+i*chunk_size, chunk_order);
 #else
-        buddy_free(mp, addr+i*chunk_size, chunk_order);
+        buddy_free_internal(mp, addr+i*chunk_size, chunk_order);
 #endif
     }
 
@@ -392,13 +406,6 @@ kmem_add_mempool (struct buddy_memzone * zone,
         goto err;
     }
 
-    /* add to the zone's pool list */
-    flags = spin_lock_irq_save(&(zone->lock));
-    {
-        insert_mempool(zone, mp);
-    }
-    spin_unlock_irq_restore(&(zone->lock), flags);
-
     /* now it's safe to enable allocation on this mempool */ 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     buddy_free(1, mp, (void*)base_addr, mp->pool_order);
@@ -406,6 +413,14 @@ kmem_add_mempool (struct buddy_memzone * zone,
     buddy_free(mp, (void*)base_addr, mp->pool_order);
 #endif
 
+    /* add to the zone's pool list */
+    flags = spin_lock_irq_save(&(zone->lock));
+    {
+        insert_mempool(zone, mp);
+    }
+    spin_unlock_irq_restore(&(zone->lock), flags);
+
+    //KMEM_PRINT("got at rdtsc %lu\n", rdtsc());
     return 0;
 err:
     free_page_tables(base_addr, size);
@@ -428,10 +443,12 @@ kmem_remove_mempool (ulong_t base_addr,
     }
 
     /* remove the mempool from the zone's free list and pool list */
-    if ( 0 != buddy_remove_pool(mp)) {
+    if ( 0 != buddy_remove_pool(mp, 0)) {
         ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
         return -1;
     }
+
+    buddy_cleanup_pool(mp);
 
     /* free the unit hash entries */
     ulong_t unit_addr;
@@ -449,18 +466,21 @@ kmem_remove_mempool (ulong_t base_addr,
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 #include <dev/apic.h>
 #include <arch/pisces/pisces_boot_params.h>
+
 void 
-nk_kmem_notify_prefetch () {
+nk_kmem_notify_drequest (ulong_t n) {
     // TODO now just use the existing lcall xbuf, may need another channel
-    pisces_boot_params->prefetch_info = 0x1215;
+    pisces_boot_params->drequest_info = n;
 
-    KMEM_PRINT("Notify prefetch to host apic %d vector %d\n",
-                pisces_boot_params->host_mem_apic,
-                pisces_boot_params->host_mem_vector);
-
+/*
+    KMEM_PRINT("Notify drequest to host apic %d vector %d\n",
+                pisces_boot_params->host_drequest_apic,
+                pisces_boot_params->host_drequest_vector);
+*/
+    //KMEM_PRINT("send at rdtsc %lu\n", rdtsc());
     apic_ipi(per_cpu_get(apic),
-        pisces_boot_params->host_mem_apic,
-        pisces_boot_params->host_mem_vector);
+        pisces_boot_params->host_drequest_apic,
+        pisces_boot_params->host_drequest_vector);
 }
 #endif
 /* 
@@ -549,7 +569,7 @@ nk_kmem_init (void)
 
 #else // Pisces. Only initialize internal mempool here, full initialization is done by nk_kmem_init_all()
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    buddy_prefetch_init (nk_kmem_notify_prefetch);
+    buddy_drequest_init (nk_kmem_notify_drequest);
 #endif    
 
     // Create internal zone to handle the 1st region in domain 0, for internal usage 
@@ -714,6 +734,16 @@ void kmem_inform_boot_allocation(void *low, void *high)
 static void *
 _kmem_malloc (size_t size, int cpu, int zero)
 {
+#if 1
+    size_t ss = 0;
+    extern int zjpflag;
+    extern size_t malloccost;
+    #include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(zjpflag == 1) {
+        ss = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
     NK_GPIO_OUTPUT_MASK(0x20,GPIO_OR);
     int first = 1;
     void *block = 0;
@@ -777,12 +807,20 @@ retry:
         KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
         NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        KMEM_PRINT("Try hard prefetch upon malloc %lu order %lu inprogress %u\n", size, order, local_domain->zone->mem_dynamic_inprogress);
-        if(hard_prefetch(local_domain->zone) >= HARD_PREFETCH_TRIES) {
+        if(hard_drequest(local_domain->zone, order) >= HARD_PREFETCH_TRIES) {
             return NULL;
         } else {
+            KMEM_PRINT("Try hard drequest upon malloc %lu order %lu inprogress %u\n", size, order, local_domain->zone->drequest_inprogress);
+            //KMEM_PRINT("rdtsc %lu\n", rdtsc());
+
+            //nk_sched_yield(0);
+            // zjp 50000 ~ 15*10^6 cycles ~ 5~7ms
+            udelay(10000);
+
+
+            //KMEM_PRINT("==rdtsc %lu\n", rdtsc());
+
             first = 1;
-            udelay(10000); // 10ms
             goto retry;
         }
 #else
@@ -804,6 +842,14 @@ retry:
 #endif
 
     NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
+#if 1
+    if(zjpflag == 1) {
+        ss = rdtsc() - ss;
+        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
+        //BACKTRACE(printk, 3);
+        malloccost += ss;
+    }
+#endif
 
     /* Return address of the block */
     return block;
@@ -830,6 +876,16 @@ void *kmem_malloc_specific(size_t size, int cpu, int zero)
 static void*
 _kmem_malloc_internal (size_t size, int zero)
 {
+#if 1
+    size_t ss = 0;
+    extern int zjpflag;
+    extern size_t imalloccost;
+    #include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(zjpflag == 1) {
+        ss = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
     void *block = 0;
     ulong_t order;
     
@@ -839,18 +895,28 @@ _kmem_malloc_internal (size_t size, int zero)
         order = MIN_ORDER;
     }
 
-    block = buddy_alloc(internal_mempool->zone, order);
-    
+    block = buddy_alloc_internal(internal_mempool->zone, order);
+
     if(!block) {
         KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
         return NULL;
     }
 
     kmem_bytes_allocated_internal += (1UL << ((struct block*)block)->order);
+    if(kmem_bytes_allocated_internal > kmem_bytes_allocated_internal_peak)
+        kmem_bytes_allocated_internal_peak = kmem_bytes_allocated_internal;
 
     if(zero) {
         memset(block,0,1ULL << ((struct block*)block)->order);
     }
+#if 1
+    if(zjpflag == 1) {
+        ss = rdtsc() - ss;
+        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
+        //BACKTRACE(printk, 3);
+        imalloccost += ss;
+    }
+#endif
 
     return block;
 }
@@ -888,9 +954,9 @@ kmem_free_internal (void * addr)
     order = get_block_order(internal_mempool, addr);
     kmem_bytes_allocated_internal -= (1UL << order);
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    buddy_free(0, internal_mempool, addr, order);
+    buddy_free_internal(0, internal_mempool, addr, order);
 #else
-    buddy_free(internal_mempool, addr, order);
+    buddy_free_internal(internal_mempool, addr, order);
 #endif
 }
 /**
@@ -902,6 +968,16 @@ kmem_free_internal (void * addr)
 void
 kmem_free (void * addr)
 {
+#if 1
+    size_t ss = 0;
+    extern int zjpflag;
+    extern size_t freecost;
+    #include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(zjpflag == 1) {
+        ss = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
     struct kmem_unit_hdr *hdr;
     ulong_t order;
 
@@ -922,6 +998,14 @@ kmem_free (void * addr)
     // currently do this to avoid modify every free() location
     if ((uint64_t)addr >= internal_mem_start && (uint64_t)addr < internal_mem_end) {
         kmem_free_internal(addr);
+#if 1
+    if(zjpflag == 1) {
+        ss = rdtsc() - ss;
+        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
+        //BACKTRACE(printk, 3);
+        freecost += ss;
+    }
+#endif
         return;
     }
 
@@ -950,7 +1034,14 @@ kmem_free (void * addr)
         return;
     }
 #endif
-
+#if 1
+    if(zjpflag == 1) {
+        ss = rdtsc() - ss;
+        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
+        //BACKTRACE(printk, 3);
+        freecost += ss;
+    }
+#endif
 }
 
 /*
@@ -1347,8 +1438,8 @@ handle_meminfo (char * buf, void * priv)
         used_regular += zone_mem_show(numa_info->domains[i]->zone);
     }
 
-    nk_vc_printf("\nInternal used %lu bytes.\nRegular used %lu bytes, used-peak %lu bytes.\n\n",
-        used_internal, used_regular, kmem_bytes_allocated_regular_peak);
+    nk_vc_printf("\nInternal used %lu bytes. used-peak %lu bytes.\nRegular used %lu bytes, used-peak %lu bytes.\n\n",
+        used_internal, kmem_bytes_allocated_internal_peak, used_regular, kmem_bytes_allocated_regular_peak);
     return 0;
 /*    
     uint64_t num = kmem_num_pools();
