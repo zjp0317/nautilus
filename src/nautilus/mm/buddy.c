@@ -1139,6 +1139,8 @@ buddy_free(
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     // a buddy free could be used for adding mem 
+    int remove = 1;
+
     if(is_new_mem == 0) {
         // only update allocated when this free() is actually for an alloc()
         zone->avail[order].allocated -= 1;
@@ -1147,12 +1149,14 @@ buddy_free(
         // new pool arrives, reset inprogress flag
         zone->drequest_inprogress = 0;
         zone->mem_size += 1UL << order;
+        // don't check removal on new pools
+        remove = 0; 
     }
 
     mp->free_size += 1UL << order;
 
     ulong_t i = 0, j = order;
-    int remove = 1;
+
 
     update_estimation(zone);
     if(has_redundant_bytes(zone) == 0) {
