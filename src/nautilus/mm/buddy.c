@@ -452,7 +452,8 @@ check_capacity (struct buddy_memzone * zone, ulong_t order)
     return (ssize_t)zone->avail[order].capacity - (ssize_t)zone->avail[order].allocated;
 #else
     //if(__sync_val_compare_and_swap(&zone->drequest_inprogress, 0, 1) == 0 ){
-    if(zone->drequest_inprogress == 0) {
+    if(zone->drequest_inprogress == 0 
+        && zone->avail[order].capacity < (1UL << (mp->pool_order - order))) {
         // no in-progress drequesting 
         //double ideal_capacity = (double)zone->avail[order].allocated * CAPACITY_FACTOR;
         //if((double)zone->avail[order].capacity < ideal_capacity) { 
