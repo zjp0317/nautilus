@@ -76,9 +76,11 @@ cmd_handler(u8    * data,
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
             struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
             if( mem_cmd->size == 0) {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
                 uint8_t flags = spin_lock_irq_save(&(numa_info->domains[0]->zone->lock));
                 numa_info->domains[0]->zone->drequest_inprogress = 0;
                 spin_unlock_irq_restore(&(numa_info->domains[0]->zone->lock), flags);
+#endif
                 INFO_PRINT("Pisces cannot provide anymore mem now\n");
             } else {
                 INFO_PRINT("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
