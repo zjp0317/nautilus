@@ -581,7 +581,9 @@ shell_handle_cmd (struct shell_cmd_state * state, char * buf, int max)
             strncpy(t_arg->buf, buf, 56);
 
             nk_thread_id_t tid;
-            if((ret = nk_thread_start(pisces_task_thread, (void*)t_arg, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
+            int cpu = nautilus_info.sys.num_cpus - 1;
+            if((ret = nk_thread_start(pisces_task_thread, (void*)t_arg, 0, 1, SHELL_STACK_SIZE, &tid, cpu))) {
+            //if((ret = nk_thread_start(pisces_task_thread, (void*)t_arg, 0, 1, SHELL_STACK_SIZE, &tid, -1))) {
                 printk("Failed to launch a task thread for memcached server\n");
             }
             nk_thread_name(tid, "cmd");

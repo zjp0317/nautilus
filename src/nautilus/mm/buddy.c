@@ -723,16 +723,6 @@ buddy_alloc_internal (struct buddy_memzone *zone, ulong_t order)
     }
 
     flags = spin_lock_irq_save(&(zone->lock));
-#if 0
-    size_t ss = 0;
-    extern int zjpflag;
-    extern size_t imalloccost;
-    #include <nautilus/cpu.h> // zjp for test
-    //extern double nk_sched_get_realtime_secs();
-    if(zjpflag == 1) {
-        ss = rdtsc(); //nk_sched_get_realtime_secs();
-    }
-#endif
 
     for (j = order; j <= zone->max_order; j++) {
 
@@ -812,14 +802,6 @@ buddy_alloc_internal (struct buddy_memzone *zone, ulong_t order)
         spin_unlock_irq_restore(&(zone->lock), flags);
         return block;
     }
-#if 0
-    if(zjpflag == 1) {
-        ss = rdtsc() - ss;
-        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
-        //BACKTRACE(printk, 3);
-        imalloccost += ss;
-    }
-#endif
 
     spin_unlock_irq_restore(&(zone->lock), flags);
     BUDDY_DEBUG("FAILED TO ALLOCATE from zone %p - RETURNING  NULL\n", zone);
@@ -854,6 +836,17 @@ buddy_alloc (struct buddy_memzone *zone,
 
     //spin_lock(&(zone->lock));
     flags = spin_lock_irq_save(&(zone->lock));
+
+#ifdef MEMCACHED_MEASUREMENT
+    size_t s_tsc = 0;
+    extern int memcached_flag;
+    extern size_t malloccost;
+    //#include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(memcached_flag == 1) {
+        s_tsc = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
 
     for (j = order; j <= zone->max_order; j++) {
 
@@ -941,6 +934,12 @@ buddy_alloc (struct buddy_memzone *zone,
         spin_unlock_irq_restore(&(zone->lock), flags);
         return block;
     }
+
+#ifdef MEMCACHED_MEASUREMENT
+    if(memcached_flag == 1) {
+        malloccost += rdtsc() - s_tsc;
+    }
+#endif
 
     //spin_unlock(&(zone->lock));
     spin_unlock_irq_restore(&(zone->lock), flags);
@@ -1126,6 +1125,17 @@ buddy_free(
     //spin_lock(&(zone->lock));
     flags = spin_lock_irq_save(&(zone->lock));
 
+#ifdef MEMCACHED_MEASUREMENT
+    size_t s_tsc = 0;
+    extern int memcached_flag;
+    extern size_t freecost;
+    //#include <nautilus/cpu.h> // zjp for test
+    //extern double nk_sched_get_realtime_secs();
+    if(memcached_flag == 1) {
+        s_tsc = rdtsc(); //nk_sched_get_realtime_secs();
+    }
+#endif
+
     clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
 #ifdef LARGE_OBJ_MAP
     if(order >= LARGE_OBJ_ORDER) {
@@ -1254,6 +1264,11 @@ buddy_free(
 
             zone->drequest_inprogress = 1;
             notify_drequest(request_info);
+#ifdef MEMCACHED_MEASUREMENT
+            if(memcached_flag == 1) {
+                freecost += rdtsc() - s_tsc;
+            }
+#endif
             spin_unlock_irq_restore(&(zone->lock), flags);
             return;
         }
@@ -1283,6 +1298,11 @@ buddy_free(
     list_add(&block->link, &zone->avail[order]);
 #endif
 
+#ifdef MEMCACHED_MEASUREMENT
+    if(memcached_flag == 1) {
+        freecost += rdtsc() - s_tsc;
+    }
+#endif
     //spin_unlock(&(zone->lock));
     spin_unlock_irq_restore(&(zone->lock), flags);
 

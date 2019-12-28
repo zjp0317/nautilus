@@ -16,10 +16,12 @@
 #include "memcached.h"
 #endif
 
-int zjpflag = -1;
+#ifdef MEMCACHED_MEASUREMENT
+int memcached_flag = -1;
 size_t malloccost = 0;
 size_t imalloccost = 0;
 size_t freecost = 0;
+#endif
 
 struct settings settings;
 static bool stop_main_loop = false;
@@ -948,9 +950,12 @@ void drive_machine(conn *c) {
             reset_cmd_handler(c); 
             continue;
         } else { // done with this conn
-            zjpflag = 0;
-            fprintf(stderr, "Close connection %p socket %d\n", c, c->sfd);
-            fprintf(stderr, "Close connection malloccost %lu imalloccost %lu, freecost %lu\n", malloccost,imalloccost, freecost);
+#ifdef MEMCACHED_MEASUREMENT
+            //memcached_flag = 0;
+            fprintf(stderr, "Close connection socket %d. malloccost %lu imalloccost %lu, freecost %lu\n", c->sfd, malloccost,imalloccost, freecost);
+#else
+            fprintf(stderr, "Close connection socket %d\n", c->sfd);
+#endif
             conn_close(c);
             break;
         }
@@ -1054,16 +1059,25 @@ int main() {
     /* Initialize the uriencode lookup table. */
     uriencode_init();
 
+#ifdef MEMCACHED_MEASUREMENT
+    malloccost = 0;
+    imalloccost = 0;
+    freecost = 0;
+#endif
     /* main loop */
     while (!stop_main_loop) {
         int conn_sock;
         struct sockaddr_in client_addr; 
         socklen_t client_addrlen = sizeof(client_addr);
         fprintf(stderr, "Waiting for clients\n");
-        zjpflag = 1;
+
         conn_sock = accept(acc_sock, (struct sockaddr*)&client_addr, &client_addrlen);
         if(conn_sock >= 0) {
             fprintf(stderr, "new conn %d arrives\n", conn_sock); 
+#ifdef MEMCACHED_MEASUREMENT
+            if(memcached_flag == 0)
+                memcached_flag = 1;
+#endif
 #if 1
             int flags = 1;
             if(0 != setsockopt(conn_sock, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags))) {
@@ -1076,6 +1090,10 @@ int main() {
 
     if(acc_sock >= 0)
         close(acc_sock);
+
+#ifdef MEMCACHED_MEASUREMENT
+    memcached_flag = 0;
+#endif
 
     /* clearance */
     //stop_threads();

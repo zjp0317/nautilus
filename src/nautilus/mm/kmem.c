@@ -734,16 +734,6 @@ void kmem_inform_boot_allocation(void *low, void *high)
 static void *
 _kmem_malloc (size_t size, int cpu, int zero)
 {
-#if 1
-    size_t ss = 0;
-    extern int zjpflag;
-    extern size_t malloccost;
-    #include <nautilus/cpu.h> // zjp for test
-    //extern double nk_sched_get_realtime_secs();
-    if(zjpflag == 1) {
-        ss = rdtsc(); //nk_sched_get_realtime_secs();
-    }
-#endif
     NK_GPIO_OUTPUT_MASK(0x20,GPIO_OR);
     int first = 1;
     void *block = 0;
@@ -811,15 +801,8 @@ retry:
             return NULL;
         } else {
             KMEM_PRINT("Waiting for drequest response on malloc with size %lu order %lu inprogress %u\n", size, order, local_domain->zone->drequest_inprogress);
-            //KMEM_PRINT("rdtsc %lu\n", rdtsc());
 
-            //nk_sched_yield(0);
-            // zjp 50000 ~ 15*10^6 cycles ~ 5~7ms
-            udelay(10000);
-
-
-            //KMEM_PRINT("==rdtsc %lu\n", rdtsc());
-
+            udelay(1000);
             first = 1;
             goto retry;
         }
@@ -842,14 +825,6 @@ retry:
 #endif
 
     NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
-#if 1
-    if(zjpflag == 1) {
-        ss = rdtsc() - ss;
-        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
-        //BACKTRACE(printk, 3);
-        malloccost += ss;
-    }
-#endif
 
     /* Return address of the block */
     return block;
@@ -876,16 +851,6 @@ void *kmem_malloc_specific(size_t size, int cpu, int zero)
 static void*
 _kmem_malloc_internal (size_t size, int zero)
 {
-#if 1
-    size_t ss = 0;
-    extern int zjpflag;
-    extern size_t imalloccost;
-    #include <nautilus/cpu.h> // zjp for test
-    //extern double nk_sched_get_realtime_secs();
-    if(zjpflag == 1) {
-        ss = rdtsc(); //nk_sched_get_realtime_secs();
-    }
-#endif
     void *block = 0;
     ulong_t order;
     
@@ -909,14 +874,6 @@ _kmem_malloc_internal (size_t size, int zero)
     if(zero) {
         memset(block,0,1ULL << ((struct block*)block)->order);
     }
-#if 1
-    if(zjpflag == 1) {
-        ss = rdtsc() - ss;
-        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
-        //BACKTRACE(printk, 3);
-        imalloccost += ss;
-    }
-#endif
 
     return block;
 }
@@ -968,16 +925,6 @@ kmem_free_internal (void * addr)
 void
 kmem_free (void * addr)
 {
-#if 1
-    size_t ss = 0;
-    extern int zjpflag;
-    extern size_t freecost;
-    #include <nautilus/cpu.h> // zjp for test
-    //extern double nk_sched_get_realtime_secs();
-    if(zjpflag == 1) {
-        ss = rdtsc(); //nk_sched_get_realtime_secs();
-    }
-#endif
     struct kmem_unit_hdr *hdr;
     ulong_t order;
 
@@ -998,14 +945,6 @@ kmem_free (void * addr)
     // currently do this to avoid modify every free() location
     if ((uint64_t)addr >= internal_mem_start && (uint64_t)addr < internal_mem_end) {
         kmem_free_internal(addr);
-#if 1
-    if(zjpflag == 1) {
-        ss = rdtsc() - ss;
-        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
-        //BACKTRACE(printk, 3);
-        freecost += ss;
-    }
-#endif
         return;
     }
 
@@ -1032,14 +971,6 @@ kmem_free (void * addr)
     if (kmem_sanity_check()) { 
         panic("KMEM HAS GONE INSANE AFTER FREE\n");
         return;
-    }
-#endif
-#if 1
-    if(zjpflag == 1) {
-        ss = rdtsc() - ss;
-        //INFO_PRINT("internal malloc %d zero %d cost %lf\n", size, zero, ss );
-        //BACKTRACE(printk, 3);
-        freecost += ss;
     }
 #endif
 }
