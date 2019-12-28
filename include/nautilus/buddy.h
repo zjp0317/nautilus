@@ -26,8 +26,10 @@
 #include <nautilus/naut_types.h>
 #include <nautilus/spinlock.h>
 
-#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
+//#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
 //#define NAUT_CONFIG_PISCES_DYNAMIC_INTERNAL 1 // TODO move this to menuconfig
+
+#define MEMCACHED_MEASUREMENT 1
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 
