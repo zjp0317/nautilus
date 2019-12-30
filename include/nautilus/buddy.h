@@ -26,14 +26,14 @@
 #include <nautilus/naut_types.h>
 #include <nautilus/spinlock.h>
 
-//#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
+#define NAUT_CONFIG_PISCES_DYNAMIC 1 // TODO move this to menuconfig
 //#define NAUT_CONFIG_PISCES_DYNAMIC_INTERNAL 1 // TODO move this to menuconfig
 
-#define MEMCACHED_MEASUREMENT 1
+//#define MEMCACHED_MEASUREMENT 1
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 
-#define CAPACITY_FACTOR  2 // capacity should be larger than allocated >> factor
+#define CAPACITY_FACTOR  2 // capacity should be larger than X >> factor, 2 means 80% per pool usage
 
 #define HARD_PREFETCH_TRIES 10 // when malloc fails, try 10 times to fetch memory
 

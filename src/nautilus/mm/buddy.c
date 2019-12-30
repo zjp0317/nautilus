@@ -404,33 +404,39 @@ update_estimation (struct buddy_memzone * zone)
     } else {
         zone->mem_estimation = zone->mem_usage << JACOBSON_ALPHA;
         zone->mem_variation = zone->mem_usage << 1;
-
     }
     zone->mem_requirement = zone->mem_estimation + (zone->mem_variation << JACOBSON_BETA);
 
     //BUDDY_PRINT(" Mem usage: %lu, estimation %lu, requirement %lu, size %lu\n",
-      //  zone->mem_usage, zone->mem_estimation, zone->mem_requirement, zone->mem_size);
-
-/*
-    if(zone->mem_requirement >= zone->mem_size) {
-    //if(zone->mem_requirement + (zone->mem_size >> REQ_FACTOR) >= zone->mem_size) {
-        soft_drequest(zone);
-    }
-    */
+      //zone->mem_usage, zone->mem_estimation, zone->mem_requirement, zone->mem_size);
 }
 
 static inline int
 has_redundant_bytes (struct buddy_memzone * zone)
 {
-    return zone->mem_requirement < zone->mem_size;
+    return zone->mem_requirement + PISCES_MEM_UNIT < zone->mem_size;
 }
 
-
 static inline int
-has_redundant_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, ulong_t order)
+has_redundant_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp)
 {
-    return (zone->avail[order].capacity - (zone->avail[order].allocated >> CAPACITY_FACTOR)) 
-                > (1UL << (mp->pool_order - order)); 
+    return zone->avail[mp->pool_order].capacity > 1;
+   // ulong_t capacity_per_pool = 1UL << (mp->pool_order - order);
+    //return zone->avail[order].capacity > capacity_per_pool + capacity_per_pool >> CAPACITY_FACTOR;
+
+    //return zone->avail[order].capacity > (zone->avail[order].allocated >> CAPACITY_FACTOR) 
+      //          + (1UL << (mp->pool_order - order)); 
+}
+
+static inline void 
+check_estimation (struct buddy_memzone * zone)
+{
+    if(zone->drequest_inprogress == 0 
+            //&& has_redundant_bytes(zone) == 0) {
+            && zone->mem_requirement >= zone->mem_size) {
+        BUDDY_PRINT("Prefetch due to predicted mem requirement %lu, actual mem %lu\n", zone->mem_requirement, zone->mem_size);
+        notify_drequest(0);
+    }
 }
 
 static ssize_t 
@@ -440,36 +446,23 @@ check_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, ulong_t 
     ASSERT(notify_drequest != NULL);
     ASSERT(zone != NULL);
 
-#if 0
-    if(zone->avail[order].capacity < 1
-            && zone->avail[order].allocated > 0) {
-        BUDDY_PRINT("Prefetch due to order %2lu: %lu allocated, %lu capacity\n", 
-                order, zone->avail[order].allocated, zone->avail[order].capacity);
-
-        soft_drequest(zone);
-    }
-
-    return (ssize_t)zone->avail[order].capacity - (ssize_t)zone->avail[order].allocated;
-#else
     //if(__sync_val_compare_and_swap(&zone->drequest_inprogress, 0, 1) == 0 ){
     if(zone->drequest_inprogress == 0 
-        && zone->avail[order].capacity < (1UL << (mp->pool_order - order))) {
-        // no in-progress drequesting 
-        //double ideal_capacity = (double)zone->avail[order].allocated * CAPACITY_FACTOR;
-        //if((double)zone->avail[order].capacity < ideal_capacity) { 
-        if((zone->avail[order].allocated > 0 && zone->avail[order].capacity == 0)
-            || (zone->avail[order].capacity < (zone->avail[order].allocated >> CAPACITY_FACTOR))) { 
-            // need drequest 
-            // To ensure that one drequest is 'sufficient':
-            //  If Factor >= 1, we need to increase this capacit by at least 1+Factor 
-            //  If Factor < 1, we only need to increase this capacity by 2
-            // Thus, for most cases, drequesting 1 pool is enough
+        /*
+            && zone->avail[order].capacity < (1UL << (mp->pool_order - order))) {
+        if((zone->avail[order].capacity < (zone->avail[order].allocated >> CAPACITY_FACTOR)) 
+                || (zone->avail[order].allocated > 0 && zone->avail[order].capacity == 0)) {
+            */
+        && zone->avail[order].allocated > 0) {
+        ulong_t capacity_per_pool = 1UL << (mp->pool_order - order);
+        ulong_t threshold = capacity_per_pool < zone->avail[order].allocated ? 
+                                capacity_per_pool: zone->avail[order].allocated;
+        if(zone->avail[order].capacity <= (threshold >> CAPACITY_FACTOR) ) {
             BUDDY_PRINT("Prefetch due to order %2lu: %lu allocated, %lu capacity\n", order, zone->avail[order].allocated, zone->avail[order].capacity);
             zone->drequest_inprogress = 1; // protected by zone lock anyway
             notify_drequest(0); 
         }
     }
-#endif
 }
 #endif
 
@@ -922,10 +915,7 @@ buddy_alloc (struct buddy_memzone *zone,
         mp->free_size -= 1UL << block->order;
 
         update_estimation(zone);
-        if(zone->drequest_inprogress == 0 
-            && zone->mem_requirement >= zone->mem_size) {
-            notify_drequest(0);
-        }
+        check_estimation(zone);
 #endif
         mp->num_free_blocks -= (1UL << (order - zone->min_order));
 
@@ -1150,7 +1140,7 @@ buddy_free(
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     // a buddy free could be used for adding mem 
-    int remove = 1;
+    int remove = 1; // remove a pool upon this free()
 
     if(is_new_mem == 0) {
         // only update allocated when this free() is actually for an alloc()
@@ -1168,19 +1158,13 @@ buddy_free(
 
     ulong_t i = 0, j = order;
 
-
     update_estimation(zone);
     if(has_redundant_bytes(zone) == 0) {
         remove = 0;
     }
 
     while(j >= zone->min_order) {
-        zone->avail[j].capacity += 1 << i++;
-        if(remove == 1
-                && has_redundant_capacity(zone, mp, j) == 0) {
-            remove = 0;
-        }
-        j--;
+        zone->avail[j--].capacity += 1 << i++;
     }
 #endif
     /* Coalesce as much as possible with adjacent free buddy blocks */
@@ -1212,10 +1196,6 @@ buddy_free(
         block->order = order;
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
         zone->avail[order].capacity += 1;
-        if(remove == 1
-                && has_redundant_capacity(zone, mp, order) == 0) {
-            remove = 0;
-        }
 #endif
     }
 
@@ -1232,15 +1212,9 @@ buddy_free(
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     list_add(&block->link, (struct list_head*)&zone->avail[order]);
 
-    while(remove == 1 && order <= mp->pool_order) {
-        if(has_redundant_capacity(zone, mp, order) == 0) {
-            remove = 0;
-            break;
-        }
-        order++;
-    }
-
-    if (remove == 1 && zone->drequest_inprogress == 0) { 
+    if (remove == 1 
+        && zone->drequest_inprogress == 0
+        && has_redundant_capacity(zone, mp) != 0) {
         // probably ok to remove one pool
 #if 1
         // remove by IPI from pisces
