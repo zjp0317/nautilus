@@ -170,10 +170,18 @@ int      passed_verification;
 /* These are the three main arrays. */
 /* See SIZE_OF_BUFFERS def above    */
 /************************************/
+
+#ifdef NAUT_CONFIG_PISCES
+INT_TYPE *key_array,
+         *key_buff1,
+         *key_buff2,
+         *partial_verify_vals;
+#else
 INT_TYPE key_array[SIZE_OF_BUFFERS],    
          key_buff1[MAX_KEY],    
          key_buff2[SIZE_OF_BUFFERS],
          partial_verify_vals[TEST_ARRAY_SIZE];
+#endif
 
 #ifdef USE_BUCKETS
 INT_TYPE bucket_size[NUM_BUCKETS],                    
@@ -650,6 +658,19 @@ void rank( int iteration )
 static int
 is_entry (char * buf, void * priv)
 {
+#ifdef NAUT_CONFIG_PISCES
+    key_array = malloc(SIZE_OF_BUFFERS * sizeof(INT_TYPE));
+    key_buff1 = malloc(MAX_KEY * sizeof(INT_TYPE));
+    key_buff2 = malloc(SIZE_OF_BUFFERS * sizeof(INT_TYPE));
+    partial_verify_vals = malloc(TEST_ARRAY_SIZE * sizeof(INT_TYPE));
+    if(!key_buff1 || !key_buff1 || !key_buff2 || !partial_verify_vals) {
+        free(key_array);
+        free(key_buff1);
+        free(key_buff2);
+        free(partial_verify_vals);
+        return -1;
+    }
+#endif
 /*
 int is_entry( int argc, char **argv )
 {
