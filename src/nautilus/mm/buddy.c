@@ -439,7 +439,7 @@ check_estimation (struct buddy_memzone * zone)
     }
 }
 
-static ssize_t 
+static inline void 
 check_capacity (struct buddy_memzone * zone, struct buddy_mempool * mp, ulong_t order)
 {
 
@@ -720,8 +720,11 @@ buddy_alloc_internal (struct buddy_memzone *zone, ulong_t order)
     for (j = order; j <= zone->max_order; j++) {
 
         /* Try to allocate the first block in the order j list */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        list = (struct list_head *)&zone->avail[j];
+#else
         list = &zone->avail[j];
-
+#endif
         if (list_empty(list)) {
             BUDDY_DEBUG("Skipping order %lu as the list is empty\n",j);
             continue;
@@ -844,7 +847,11 @@ buddy_alloc (struct buddy_memzone *zone,
     for (j = order; j <= zone->max_order; j++) {
 
         /* Try to allocate the first block in the order j list */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        list = (struct list_head *)&zone->avail[j];
+#else
         list = &zone->avail[j];
+#endif
 
         if (list_empty(list)) {
             BUDDY_DEBUG("Skipping order %lu as the list is empty\n",j);
@@ -1225,8 +1232,10 @@ buddy_free(
             pool = mp;
         } else {
             // traverse to find an unused pool
-            list_for_each_entry(pool, &(zone->mempools), link) {
-                if(pool->free_size >= 1UL << pool->pool_order) {
+            struct buddy_mempool* tmp;
+            list_for_each_entry(tmp, &(zone->mempools), link) {
+                if(tmp->free_size >= 1UL << tmp->pool_order) {
+                    pool = tmp;
                     break;
                 }
             }
