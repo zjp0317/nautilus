@@ -9,14 +9,39 @@
 #define TCP_WND         0x600000 // default in ubuntu tcp_rmem is 4096  87380   6291456 
 #define LWIP_WND_SCALE                  1
 #define TCP_RCV_SCALE                   7 // 0xffff << e > TCP_WND 
-#define MEMP_MEM_MALLOC 1
-//#define PBUF_POOL_SIZE                  16 // * BUFSIZE(~TCP_MSS) should > TCP_WND
-#define MEMP_NUM_NETCONN                5
-#define MEMP_NUM_TCP_PCB                5
-#define MEMP_NUM_TCP_PCB_LISTEN         8
+#define TCP_WND_UPDATE_THRESHOLD        (TCP_WND / 4) 
 #define TCP_SND_BUF                     (64 * TCP_MSS)
 #define TCP_SNDLOWAT                    (TCP_SND_BUF / 2)
-//#define MEMP_NUM_TCP_SEG                256
+
+#define MEMP_MEM_MALLOC 1
+
+#if MEMP_MEM_MALLOC
+#define MEM_LIBC_MALLOC 1
+#else //  MEMP_MEM_MALLOC
+
+#define MEM_LIBC_MALLOC 0
+#define MEM_USE_POOLS 1
+#define MEMP_USE_CUSTOM_POOLS 1
+//#define MEM_USE_POOLS_TRY_BIGGER_POOL 1
+
+#define MEMP_NUM_PBUF   2048
+#define MEMP_NUM_RAW_PCB    2048
+#define MEMP_NUM_FRAG_PBUF  64
+#define MEMP_NUM_NETBUF     2048
+
+
+#define PBUF_POOL_SIZE                  8192 // * BUFSIZE(~TCP_MSS) should > TCP_WND
+#define MEMP_NUM_TCP_SEG                2048
+#define MEMP_NUM_TCPIP_MSG_API          2048
+#define MEMP_NUM_TCPIP_MSG_INPKT        2048
+#define MEMP_NUM_REASSDATA              2048
+#define IP_REASS_MAX_PBUFS              2048
+#endif // MEMP_MEM_MALLOC
+
+#define MEMP_NUM_NETCONN                2048
+#define MEMP_NUM_TCP_PCB                2048
+#define MEMP_NUM_TCP_PCB_LISTEN         2048
+
 #define MEM_ALIGNMENT                   4
 //#define CHECKSUM_GEN_TCP                0
 //#define CHECKSUM_CHECK_TCP                0
@@ -35,7 +60,7 @@
 // We want it to use NK's malloc
 // not that MEM_USE_POOLS/etc is off, so all allocation goes via NK
 // we're not concerned about speed yet
-#define MEM_LIBC_MALLOC 1 // zjp 1
+//#define MEM_LIBC_MALLOC 0 // zjp 1
 
 // zjp  configs that may matter
 #if 0
