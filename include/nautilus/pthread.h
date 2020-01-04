@@ -81,7 +81,8 @@ int pthread_once(pthread_once_t * ctrl, void (*init_routine)(void))
 
 #define pthread_barrier_t           nk_counting_barrier_t
 #define pthread_barrier_init(p,n,c) nk_counting_barrier_init(p,c)
-#define pthread_barrier_wait(p)     do { if (!skipbarrier) { DEBUG("barrier start %s:%d\n",__FILE__,__LINE__); nk_counting_barrier(p); DEBUG("barrier end %s:%d\n",__FILE__,__LINE__);} } while (0)
+#define pthread_barrier_wait(p)     do { nk_counting_barrier(p); } while (0)
+//#define pthread_barrier_wait(p)     do { if (!skipbarrier) { DEBUG("barrier start %s:%d\n",__FILE__,__LINE__); nk_counting_barrier(p); DEBUG("barrier end %s:%d\n",__FILE__,__LINE__);} } while (0)
 #define pthread_barrier_destroy(p)  //leak
 
 #endif
