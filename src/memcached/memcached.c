@@ -38,6 +38,16 @@ conn **conns;
 # define IOV_MAX 1024
 #endif
 
+static double gettime() {
+#ifdef NAUT_CONFIG_PISCES
+    return nk_sched_get_realtime_secs();
+#else
+    struct timeval t;
+    gettimeofday(&t,NULL);
+    return (size_t)t.tv_sec+t.tv_usec*1e-6;
+#endif
+}
+
 enum try_read_result {
     READ_DATA_RECEIVED,
     READ_NO_DATA_RECEIVED,
@@ -485,6 +495,8 @@ conn *conn_new(const int sfd, int read_buffer_size) {
     c->msgused = 0;
     c->rcurr = c->rbuf;
 
+    c->start_time = gettime(); 
+
     return c;
 }
 
@@ -779,6 +791,7 @@ static int process_bin_get(conn *c) {
         
         //add_iov(c, ITEM_data(it), it->nbytes - 2);
         // we don't have CHUNKED cases 
+        
         memcpy(c->wbuf + 28,ITEM_data(it), it->nbytes - 2);
         
         int res = c->nk_write(c, c->wbuf, size);
@@ -952,9 +965,9 @@ void drive_machine(conn *c) {
         } else { // done with this conn
 #ifdef MEMCACHED_MEASUREMENT
             //memcached_flag = 0;
-            fprintf(stderr, "Close connection socket %d. malloccost %lu imalloccost %lu, freecost %lu\n", c->sfd, malloccost,imalloccost, freecost);
+            fprintf(stderr, "Close connection socket %d. malloccost %lu imalloccost %lu, freecost %lu. Conn time %lf\n", c->sfd, malloccost,imalloccost, freecost, gettime() - c->start_time);
 #else
-            fprintf(stderr, "Close connection socket %d\n", c->sfd);
+            fprintf(stderr, "Close connection socket %d. Conn time %lf\n", c->sfd, gettime() - c->start_time);
 #endif
             conn_close(c);
             break;

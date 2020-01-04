@@ -357,6 +357,9 @@ struct conn {
     short cmd; /* current command being processed */
     int opaque;
     int keylen;
+    
+    double start_time; // for measurement
+
     conn   *next;     /* Used for generating a list of conn structures */
     NK_MEMCACHED_THREAD *thread; /* Pointer to the thread object serving this connection */
 #ifdef __Nautilus__
