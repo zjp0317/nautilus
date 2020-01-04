@@ -12,6 +12,7 @@ obj-y += new-malloc-test.o
 obj-y += calloc-test.o
 obj-y += malloc-test.o
 obj-y += streamcluster.o
+obj-y += streamcluster_1.o
 
 obj-$(NAUT_CONFIG_TEST_CACHEPART) += cachepart.o
 
