@@ -55,6 +55,8 @@ int   nk_msg_queue_empty(struct nk_msg_queue *queue);
 void  nk_msg_queue_push(struct nk_msg_queue *queue, void *msg);
 void  nk_msg_queue_pull(struct nk_msg_queue *queue, void **msg);
 
+// zjp
+int nk_msg_queue_try_push_withlock(struct nk_msg_queue *queue, void *msg);
 // returns 0 on success - does not block
 int  nk_msg_queue_try_push(struct nk_msg_queue *queue, void *msg);
 int  nk_msg_queue_try_pull(struct nk_msg_queue *queue, void **msg);

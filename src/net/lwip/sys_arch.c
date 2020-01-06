@@ -269,7 +269,9 @@ err_t sys_mbox_trypost(sys_mbox_t *mb, void *msg)
 
     LWIP_ASSERT("invalid mbox", sys_mbox_valid(mb) );
     
-    if (nk_msg_queue_try_push(mb->mq,msg)) {
+    // zjp: don't return ERR upon trylock failure
+    if (nk_msg_queue_try_push_withlock(mb->mq,msg)) {
+    //if (nk_msg_queue_try_push(mb->mq,msg)) {
 	DEBUG("Mbox try post %p %p Failed\n",mb,msg);
 	return ERR_MEM;
     } else {

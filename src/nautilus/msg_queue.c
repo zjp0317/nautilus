@@ -298,6 +298,26 @@ static inline int _nk_msg_queue_try_pull(struct nk_msg_queue *q, void **m)
     }
 }
 
+// zjp
+int  nk_msg_queue_try_push_withlock(struct nk_msg_queue *q, void *m)
+{
+    QUEUE_LOCK_CONF;
+    int rc;
+
+    //DEBUG("try push %s\n",q->name);
+
+    QUEUE_LOCK(q);
+    rc = _nk_msg_queue_try_push(q,m);
+    QUEUE_UNLOCK(q);
+    if (!rc) {
+	//DEBUG("try push %s succeeded\n",q->name);
+	nk_wait_queue_wake_one(q->pull_wait_queue);
+    } else {
+	//DEBUG("try push %s failed\n",q->name);
+    }
+    return rc;
+}
+
 int  nk_msg_queue_try_push(struct nk_msg_queue *q, void *m)
 {
     QUEUE_LOCK_CONF;
