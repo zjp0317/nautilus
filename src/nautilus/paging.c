@@ -786,7 +786,14 @@ free_page_tables (addr_t addr, ulong_t size)
             ulong_t pd_idx_end = (pml4_idx == pml4_idx_end && pdpt_idx == pdpt_idx_end) ? 
                                         pd_idx_last : (NUM_PD_ENTRIES - 1);
             ulong_t pd_idx;
-            for(pd_idx = pd_idx_start; pd_idx <= pd_idx_end; pd_idx++) {
+            char free_upperlevel = 1;
+            for(pd_idx = 0; pd_idx < NUM_PD_ENTRIES; pd_idx++) {
+                if(pd_idx < pd_idx_start || pd_idx > pd_idx_end) {
+                    if(PDE_PRESENT(pd[pd_idx])) {
+                        free_upperlevel = 0;
+                    }
+                    continue;
+                }
                 // Support 2MB page 
                 if (PDE_PRESENT(pd[pd_idx])) {
                     DEBUG_PRINT("free pde pml4_idx %d pdpt_idx %d pd_idx %d\n", pml4_idx, pdpt_idx, pd_idx);
@@ -800,7 +807,8 @@ free_page_tables (addr_t addr, ulong_t size)
                 vaddr += PAGE_SIZE_2MB;
             }
             // If All PD level entries are freed, backwards to PDPT level
-            if(pd_idx_start == 0 && pd_idx_end == NUM_PD_ENTRIES - 1) {
+            if(free_upperlevel == 1) {
+            //if(pd_idx_start == 0 && pd_idx_end == NUM_PD_ENTRIES - 1) {
                 kmem_free_internal(pd);
                 pdpt[pdpt_idx] = 0;
                 DEBUG_PRINT("free pdpte pml4_idx %d pdpt_idx %d pd_idx %d\n", pml4_idx, pdpt_idx, pd_idx);
@@ -851,6 +859,7 @@ __construct_tables_2m_pisces(pml4e_t * pml)
     /* Step 2: offset mapping */
     ulong_t kernel_start_page = round_down((ulong_t)&_loadStart, PAGE_SIZE_2MB);
     ulong_t kernel_end_page = round_up((ulong_t)&_loadStart + pisces_boot_params->kernel_size, PAGE_SIZE_2MB);
+    printk("Offset mapping from %lx to %lx\n", kernel_start_page,kernel_end_page);
     __fill_page_tables(pml, kernel_start_page,
                             pisces_boot_params->kernel_addr,
                             kernel_end_page - kernel_start_page,
