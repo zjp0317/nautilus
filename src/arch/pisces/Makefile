@@ -11,5 +11,6 @@ obj-y += asm/ \
 		early_mem.o \
         pisces_ctrl.o \
         pisces_xbuf.o \
+        pisces_drequest.o \
         pisces_cmd.o
 		

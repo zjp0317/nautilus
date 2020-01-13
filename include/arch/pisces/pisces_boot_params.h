@@ -100,13 +100,10 @@ struct pisces_boot_params {
     u64 num_blocks;
     u64 block_size;
 
-    // prefetch
-    u64 drequest_info;
-    u32 host_drequest_apic;
-    u32 host_drequest_vector;
-    u32 host_drequest_irq;
-    //u32 new_mem_blocks;
-    //u64 new_mem_range[0];
+    // drequest
+    u64 drequest_mem_info; // l1, l2
+    u64 prefeching_dchan_addr;
+    u64 removal_dchan_addr;
 } __attribute__((packed));
 
 extern struct pisces_boot_params *pisces_boot_params;

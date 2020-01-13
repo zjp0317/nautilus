@@ -63,8 +63,10 @@
 
 #define KMEM_ERROR_BACKTRACE() BACKTRACE(KMEM_ERROR,3)
 	    
-
-
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+#include <arch/pisces/pisces_drequest.h>
+static struct buddy_memzone* drequest_zone = NULL;
+#endif
 
 /**
  * This specifies the minimum sized memory block to request from the underlying
@@ -104,9 +106,7 @@ static struct list_head glob_zone_list;
  * Each hasn entry stores a pointer to the corresponding buddy_mempool.
  * Each buddy_mempool structure stores tag-bits, order-bits, and flags for all blocks.
  */
-#define KMEM_UNIT_SIZE  PISCES_MEM_UNIT // unit size: 128MB
-#define KMEM_UNIT_MASK  (~(KMEM_UNIT_SIZE - 1))
-#define KMEM_UNIT_NUM   0x2000ULL       // support 8K discontinous units 
+
 struct kmem_unit_hdr {
     /*
      * Intuitively, unit_addr is the start address of each 128M unit ( 128M-aligned ) 
@@ -261,6 +261,7 @@ static inline int unit_hash_free(void *ptr)
         unit_hash_free_entry(u);
         return 0;
     }
+    return 0;
 }
 
 struct mem_region *
@@ -270,6 +271,52 @@ kmem_get_base_zone (void)
     return list_first_entry(&glob_zone_list, struct mem_region, glob_link);
 }
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+static inline void
+__kmem_cleanup_mempool (struct buddy_mempool * mp)
+{
+    ulong_t base_addr = mp->base_addr;
+    ulong_t size = 1UL << mp->pool_order;
+    ulong_t unit_addr;
+
+    buddy_cleanup_pool(mp);
+
+    for(unit_addr = base_addr; unit_addr < base_addr + size; unit_addr += KMEM_UNIT_SIZE) {
+        unit_hash_free((void*)unit_addr);
+    }
+
+    if(0 != free_page_tables(base_addr, size)) {
+        ERROR_PRINT("Clean up mempool (base_addr=0x%lx) with failure on cleanning page tables\n", mp, base_addr);
+    }
+}
+
+int
+kmem_try_remove (ulong_t size)
+{
+    struct buddy_mempool * mp = NULL;
+    ulong_t removed_bytes = 0;
+    int removed_pools = 0;
+    struct list_head pool_list;
+
+    if(size == 0)
+        return 0;
+
+    INIT_LIST_HEAD(&pool_list);
+    
+    removed_pools = buddy_try_remove(drequest_zone, size, &pool_list);
+    if(removed_pools > 0) {
+        list_for_each_entry(mp, &pool_list, link) {
+            ulong_t psize = 1UL << mp->pool_order;
+
+            __kmem_cleanup_mempool(mp);
+
+            removed_bytes += psize;
+        }
+    }
+
+    return removed_bytes;
+}
+#endif
 
 /* TODO: if we're going to be using this at runtime, really need to 
  * key these regions in a tree
@@ -340,11 +387,7 @@ kmem_add_memory (struct buddy_mempool * mp,
 	       mp,base_addr,size,chunk_size,chunk_order,num_chunks,addr);
     
     for (i = 0; i < num_chunks; i++) { 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        buddy_free_internal(1, mp, addr+i*chunk_size, chunk_order);
-#else
         buddy_free_internal(mp, addr+i*chunk_size, chunk_order);
-#endif
     }
 
     /* Update statistics */
@@ -384,6 +427,10 @@ kmem_add_mempool (struct buddy_memzone * zone,
                  ulong_t base_addr, 
                  ulong_t size)
 {
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    if(zone == NULL)
+        zone = drequest_zone;
+#endif
     uint8_t flags = 0;
 
     /* create a mempool struct for given memory */
@@ -413,13 +460,14 @@ kmem_add_mempool (struct buddy_memzone * zone,
     buddy_free(mp, (void*)base_addr, mp->pool_order);
 #endif
 
+#if 1
     /* add to the zone's pool list */
     flags = spin_lock_irq_save(&(zone->lock));
     {
         insert_mempool(zone, mp);
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
-
+#endif 
     //KMEM_PRINT("got at rdtsc %lu\n", rdtsc());
     return 0;
 err:
@@ -433,7 +481,8 @@ err:
  */
 int
 kmem_remove_mempool (ulong_t base_addr, 
-                    ulong_t size)
+                    ulong_t size,
+                    char buddy_remove)
 {
     /* try get the corresponding mempool */
     struct buddy_mempool *mp = kmem_get_mempool_by_addr(base_addr);
@@ -443,9 +492,11 @@ kmem_remove_mempool (ulong_t base_addr,
     }
 
     /* remove the mempool from the zone's free list and pool list */
-    if ( 0 != buddy_remove_pool(mp, 0)) {
-        ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
-        return -1;
+    if(buddy_remove == 1) {
+        if ( 0 != buddy_remove_pool(mp, 0)) {
+            ERROR_PRINT("Failed to remove mempool %p base_addr=0x%lx\n", mp, base_addr);
+            return -1;
+        }
     }
 
     buddy_cleanup_pool(mp);
@@ -463,26 +514,6 @@ kmem_remove_mempool (ulong_t base_addr,
     return 0;
 }
 
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-#include <dev/apic.h>
-#include <arch/pisces/pisces_boot_params.h>
-
-void 
-nk_kmem_notify_drequest (ulong_t n) {
-    // TODO now just use the existing lcall xbuf, may need another channel
-    pisces_boot_params->drequest_info = n;
-
-/*
-    KMEM_PRINT("Notify drequest to host apic %d vector %d\n",
-                pisces_boot_params->host_drequest_apic,
-                pisces_boot_params->host_drequest_vector);
-*/
-    //KMEM_PRINT("send at rdtsc %lu\n", rdtsc());
-    apic_ipi(per_cpu_get(apic),
-        pisces_boot_params->host_drequest_apic,
-        pisces_boot_params->host_drequest_vector);
-}
-#endif
 /* 
  * initializes the kernel memory pools based on previously 
  * collected memory information (including NUMA domains etc.)
@@ -568,9 +599,6 @@ nk_kmem_init (void)
     return 0;
 
 #else // Pisces. Only initialize internal mempool here, full initialization is done by nk_kmem_init_all()
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    buddy_drequest_init (nk_kmem_notify_drequest);
-#endif    
 
     // Create internal zone to handle the 1st region in domain 0, for internal usage 
     internal_zone = buddy_init(numa_info->domains[0]->id, MAX_ORDER, MIN_ORDER);
@@ -631,6 +659,7 @@ nk_kmem_init_all (void)
     uint64_t total_mem=0;
     uint64_t total_phys_mem=0;
 
+
     for (i = 0; i < numa_info->num_domains; i++) {
         /* create zone for this domain */
         struct buddy_memzone * zone = buddy_create(numa_info->domains[i]->id, MAX_ORDER, MIN_ORDER);
@@ -665,7 +694,7 @@ nk_kmem_init_all (void)
             KMEM_PRINT("initialize mem pool at %p size %lx\n", ent->base_addr, ent->len);
 
             if(kmem_alloc_unit_hash(ent->base_addr, ent->base_addr + len, mp) != 0) {
-                mm_boot_free(mp, sizeof(struct buddy_mempool));
+                kmem_free_internal(mp);
                 panic("Could not initialize unit hash for region %u in domain %u\n", j, i);
                 return -1;
             }
@@ -696,6 +725,14 @@ nk_kmem_init_all (void)
     KMEM_PRINT("Malloc configured to support a maximum of: 0x%lx bytes for runtime/applications\n", total_phys_mem);
 
     kmem_private_end = boot_mm_get_cur_top();
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    drequest_zone = numa_info->domains[0]->zone;
+    if(0 != drequest_init()) {
+        panic("Cound not initialize drequest");
+        return -1;
+    }
+#endif    
 
     return 0;
 }
@@ -741,6 +778,9 @@ _kmem_malloc (size_t size, int cpu, int zero)
     struct mem_reg_entry * reg = NULL;
     ulong_t order;
     cpu_id_t my_id;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    int dretry = 0;
+#endif
 
     if (cpu < 0 || cpu >= nk_get_num_cpus()) {
         my_id = my_cpu_id();
@@ -770,6 +810,9 @@ _kmem_malloc (size_t size, int cpu, int zero)
 retry:
 
     /* try alloc from local zone first, then other zones */
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    block = buddy_alloc(drequest_zone, order);
+#else
     block = buddy_alloc(local_domain->zone, order);
     if(block == NULL) {
         unsigned i;
@@ -780,6 +823,7 @@ retry:
             }
         }
     }
+#endif
 
     if (block) {
         __asm__ __volatile__ ("" :::"memory");
@@ -797,12 +841,12 @@ retry:
         KMEM_DEBUG("malloc permanently failed for size %lu order %lu\n",size,order);
         NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        if(hard_drequest(local_domain->zone, order) >= HARD_PREFETCH_TRIES) {
-            return NULL;
-        } else {
-            KMEM_PRINT("Waiting for drequest response on malloc with size %lu order %lu inprogress %u\n", size, order, local_domain->zone->drequest_inprogress);
+        if(dretry++ < HARD_PREFETCH_TRIES) {
+            drequest_try_prefetch();
+            KMEM_PRINT("Waiting(%d) for drequest prefetch on malloc: size %lu order %lu\n", dretry, size, order);
+            //udelay(1000);
+            drequest_wait_for_prefetch();
 
-            udelay(1000);
             first = 1;
             goto retry;
         }
@@ -853,7 +897,7 @@ _kmem_malloc_internal (size_t size, int zero)
 {
     void *block = 0;
     ulong_t order;
-    
+
     /* Calculate the block order needed */
     order = ilog2(roundup_pow_of_two(size));
     if (order < MIN_ORDER) {
@@ -910,11 +954,7 @@ kmem_free_internal (void * addr)
     // internal zone only has one pool
     order = get_block_order(internal_mempool, addr);
     kmem_bytes_allocated_internal -= (1UL << order);
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    buddy_free_internal(0, internal_mempool, addr, order);
-#else
     buddy_free_internal(internal_mempool, addr, order);
-#endif
 }
 /**
  * Frees memory previously allocated with kmem_alloc().
@@ -961,11 +1001,28 @@ kmem_free (void * addr)
 
     kmem_bytes_allocated_regular -= (1UL << order);
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    buddy_free(0, mp, addr, order);
+    int need_voluntary_remove = buddy_free(0, mp, addr, order);
 #else
     buddy_free(mp, addr, order);
 #endif
     KMEM_DEBUG("free succeeded: addr=0x%lx order=%lu\n",addr,order);
+
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    if(need_voluntary_remove == 1) {
+        if(claim_removal_dchan() == 1) {
+            // IPI must be sent once any mempool has been removed from zone
+            struct buddy_mempool * freepool = buddy_voluntary_remove(drequest_zone, mp, 0);
+            if(freepool) {
+                drequest_set_removal_msg(freepool->base_addr >> DREQUEST_PAGE_SHIFT, 0);
+                drequest_set_removal_msg_len(1);
+                drequest_confirm_remove();
+                __kmem_cleanup_mempool(freepool);
+            } else {
+                release_removal_dchan();
+            }
+        }
+    }
+#endif
 
 #if SANITY_CHECK_PER_OP
     if (kmem_sanity_check()) { 

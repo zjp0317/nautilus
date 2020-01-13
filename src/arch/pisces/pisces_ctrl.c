@@ -4,6 +4,7 @@
 #include <arch/pisces/pisces.h>
 #include <nautilus/nautilus.h>
 #include <nautilus/paging.h>
+#include <nautilus/irq.h>
 
 #include <nautilus/math.h>
 //#include <arch/pisces/pisces_file.h>
@@ -76,11 +77,6 @@ cmd_handler(u8    * data,
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
             struct nk_locality_info * numa_info = &(nk_get_nautilus_info()->sys.locality_info);
             if( mem_cmd->size == 0) {
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-                uint8_t flags = spin_lock_irq_save(&(numa_info->domains[0]->zone->lock));
-                numa_info->domains[0]->zone->drequest_inprogress = 0;
-                spin_unlock_irq_restore(&(numa_info->domains[0]->zone->lock), flags);
-#endif
                 INFO_PRINT("Pisces cannot provide anymore mem now\n");
             } else {
                 INFO_PRINT("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
@@ -127,7 +123,7 @@ cmd_handler(u8    * data,
             struct cmd_mem_add *mem_cmd = (struct cmd_mem_add*)cmd;
             INFO_PRINT("Reiceve REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             // zjp: TODO this is just a test that adds to domian 0. Need to support any domain
-            ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size);
+            ret = kmem_remove_mempool(mem_cmd->phys_addr, mem_cmd->size, 1);
             if(ret != 0) {
                 INFO_PRINT("Failed to REMOVE_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
             }
@@ -186,15 +182,6 @@ cmd_handler(u8    * data,
     pisces_xbuf_complete(xbuf_desc, (u8*)&resp, resp_len); 
     __asm__ __volatile__ ("":::"memory");
 	return;
-}
-
-static void
-pisces_drequest_thread (void * in, void ** out)
-{
-    while(1) {
-
-    }
-    return;
 }
 
 int 

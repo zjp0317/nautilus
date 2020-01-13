@@ -296,6 +296,7 @@ init (unsigned long mbd,
 
     printk("nautilus kernel size %u\n", pisces_boot_params->kernel_size);
 
+
     // We ask for 2 memory blocks at least.
     // --The 1st block is used for boot allocator, and all pages for dynamic page table.
     // --The rest block is for kmem buddy allocator. 
@@ -397,6 +398,8 @@ init (unsigned long mbd,
      * allocated in the boot mem allocator are kept reserved */
     mm_boot_kmem_init();
 
+    nk_wait_queue_init();
+
     /* init kmem allocator on all regions */
     nk_kmem_init_all();
 
@@ -412,7 +415,7 @@ init (unsigned long mbd,
 
     disable_8259pic();
 
-    nk_wait_queue_init();
+
 
     i8254_init(naut);
 

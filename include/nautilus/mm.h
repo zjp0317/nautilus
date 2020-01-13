@@ -96,9 +96,17 @@ int nk_kmem_init_all(void);
 #define INTERNAL_MEM_SIZE   (2 * PISCES_MEM_UNIT) // 256MB reserved for internal usage
 #define REGULAR_MEM_SIZE    (PISCES_MEM_UNIT) // 128MB for regular usage: runtime, apps, etc.
 #define MINIMUM_MEM_SIZE    (INTERNAL_MEM_SIZE + REGULAR_MEM_SIZE) // At least INTERNAL_MEM_SIZE + 128MB for booting nautilus-pisces
+
+#define KMEM_UNIT_SIZE  PISCES_MEM_UNIT // unit size: 128MB
+#define KMEM_UNIT_MASK  (~(KMEM_UNIT_SIZE - 1))
+#define KMEM_UNIT_NUM   0x2000ULL       // support 8K discontinous units 
 #endif
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+int kmem_try_remove (ulong_t size);
+#endif
 /* zjp: keep the old get_base_zone and get_region for lua runtime */
+
 struct mem_region * kmem_get_base_zone(void);
 struct mem_region * kmem_get_region_by_addr(ulong_t addr);
 
@@ -107,7 +115,7 @@ struct buddy_mempool * kmem_get_mempool_by_addr(ulong_t addr);
 void kmem_add_memory(struct buddy_mempool* mp, ulong_t base_addr, size_t size);
 
 int kmem_add_mempool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t size);
-int kmem_remove_mempool (ulong_t base_addr, ulong_t size);
+int kmem_remove_mempool (ulong_t base_addr, ulong_t size, char buddy_remove);
 
 // this the range of heap addresses used by the boot allocator [low,high)
 void kmem_inform_boot_allocation(void *low, void *high);
