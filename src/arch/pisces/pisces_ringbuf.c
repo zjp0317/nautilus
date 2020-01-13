@@ -13,7 +13,8 @@ struct pisces_cons_ringbuf {
     uint64_t read_idx;
     uint64_t write_idx;
     uint64_t cur_len;
-    uint8_t buf[(64 * 1024) - 32];
+    uint8_t buf[(128 * 1024) - 32];
+    //uint8_t buf[(64 * 1024) - 32];
 } __attribute__((packed));
 
 
