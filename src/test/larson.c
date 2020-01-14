@@ -270,11 +270,11 @@ handle_larson (char * buf, void * priv)
     int ret = 0;
     if ((ret = sscanf(buf, "larson %d %d %d %d %d %d %d", 
                     &sleep_cnt, &min_size, &max_size, &chperthread, &num_rounds, &seed, &max_threads)) != 7) {
-        sleep_cnt = 30; 
+        sleep_cnt = 10; 
         min_size = 64;
-        max_size = 1024*1024; 
+        max_size = 1024; 
         chperthread = 1000; 
-        num_rounds = 1000000;
+        num_rounds = 10000;
         seed =1; 
         max_threads = nautilus_info.sys.num_cpus;
         INFO_PRINT("Use default setting:  \n");
