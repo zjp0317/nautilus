@@ -9,6 +9,7 @@ obj-y += net_udp_echo.o
 obj-y += test.o
 
 obj-y += new-malloc-test.o
+obj-y += larson.o
 obj-y += calloc-test.o
 obj-y += malloc-test.o
 obj-y += streamcluster.o
