@@ -31,6 +31,7 @@
 #define pthread_t                   nk_thread_id_t
 #define pthread_create(tp,ap,f,i)   nk_thread_start((nk_thread_fun_t)f,i,0,0,TSTACK_DEFAULT,tp,-1)
 #define pthread_join(tp,ap)         nk_join(tp,ap)
+#define pthread_exit(tp)            nk_thread_exit(0) 
 #define pthread_self()              ({ get_cur_thread()->tid; })
 
 #define NAUT_SIZEOF_PTHREAD_ATTR_T  56
