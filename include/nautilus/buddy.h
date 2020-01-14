@@ -166,7 +166,7 @@ void buddy_cleanup_pool(struct buddy_mempool *mp);
 struct buddy_mempool * buddy_create_pool (struct buddy_memzone * zone, ulong_t base_addr, ulong_t pool_order);
 int buddy_remove_pool (struct buddy_mempool * mp, char has_lock);
 
-int zone_mem_show(struct  buddy_memzone * zone);
+uint64_t zone_mem_show(struct  buddy_memzone * zone);
 
 inline ulong_t get_block_order (struct buddy_mempool *mp, void *block);
 

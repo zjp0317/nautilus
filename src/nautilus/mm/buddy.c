@@ -1249,7 +1249,7 @@ int buddy_sanity_check(struct buddy_mempool *mp)
 /**
  * Dumps the state of a buddy system memory allocator object to the console.
  */
-int zone_mem_show(struct  buddy_memzone * zone)
+uint64_t zone_mem_show(struct  buddy_memzone * zone)
 {
     unsigned long          num_blocks = 0;
     struct list_head     * entry      = NULL;
