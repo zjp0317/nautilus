@@ -150,7 +150,7 @@ prefetching_ipi_handler (excp_entry_t * excp,
     drequest_wakeup_for_prefetch();
 
     if(idx == 0)
-        DR_PRINT("Pisces cannot provide new mem now"); 
+        DR_PRINT("Pisces cannot provide new mem now\n"); 
 
     /* reset channel state */
     mbarrier();

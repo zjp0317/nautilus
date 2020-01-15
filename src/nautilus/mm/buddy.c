@@ -523,7 +523,9 @@ buddy_init_pool(struct buddy_memzone * zone,
     mp->zone            = zone;
     mp->num_free_blocks = 0;
     mp->in_use = 0;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
     mp->dr_flag = 0;
+#endif
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
@@ -618,7 +620,9 @@ buddy_create_pool(struct buddy_memzone * zone,
     mp->zone            = zone;
     mp->num_free_blocks = 0;
     mp->in_use = 0;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
     mp->dr_flag = 0;
+#endif
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
