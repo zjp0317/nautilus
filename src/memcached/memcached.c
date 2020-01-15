@@ -921,6 +921,39 @@ static int process_cmd_binary(conn *c) {
 
 static void conn_shrink(conn *c) {
     // Don't shrink, we want large memory consumption
+    if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
+        char *newbuf;
+
+        if (c->rcurr != c->rbuf)
+            memmove(c->rbuf, c->rcurr, (size_t)c->rbytes);
+
+        newbuf = (char *)realloc((void *)c->rbuf, DATA_BUFFER_SIZE);
+
+        if (newbuf) {
+            c->rbuf = newbuf;
+            c->rsize = DATA_BUFFER_SIZE;
+        }
+        /* TODO check other branch... */
+        c->rcurr = c->rbuf;
+    }
+
+    if (c->msgsize > MSG_LIST_HIGHWAT) {
+        struct msghdr *newbuf = (struct msghdr *) realloc((void *)c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
+        if (newbuf) {
+            c->msglist = newbuf;
+            c->msgsize = MSG_LIST_INITIAL;
+        }
+    /* TODO check error condition? */
+    }
+
+    if (c->iovsize > IOV_LIST_HIGHWAT) {
+        struct iovec *newbuf = (struct iovec *) realloc((void *)c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
+        if (newbuf) {
+            c->iov = newbuf;
+            c->iovsize = IOV_LIST_INITIAL;
+        }
+    /* TODO check return value */
+    }
 }
 
 static void reset_cmd_handler(conn *c) {
