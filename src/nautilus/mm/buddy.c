@@ -388,7 +388,7 @@ update_estimation (struct buddy_memzone * zone)
         zone->mem_requirement_l2 = zone->mem_requirement_l1 + PISCES_MEM_UNIT;
 #endif 
     DREQUEST_UPDATE_INFO(zone->mem_requirement_l1, zone->mem_requirement_l2);
-#if 1
+#if 0
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
       zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
 #endif

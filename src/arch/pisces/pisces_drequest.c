@@ -108,6 +108,7 @@ release_removal_dchan ()
 inline void
 drequest_try_prefetch() {
     if(atomic_cmpswap(prefetching_dchan->in_progress, 0, 1) == 0) {
+        DR_DEBUG("Sending prefetch request\n");
         atomic_set64(&prefetching_dchan->msg[0], 0);
         //mbarrier();
         drequest_send(prefetching_dchan);
@@ -116,6 +117,7 @@ drequest_try_prefetch() {
 
 inline void
 drequest_confirm_remove() {
+    DR_DEBUG("Sending removal\n");
     drequest_send(removal_dchan);
 }
 
