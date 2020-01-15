@@ -268,9 +268,7 @@ handle_larson (char * buf, void * priv)
     int          num_chunks=10000;
     long sleep_cnt;
 
-// zjp
-    blkp = (char**)malloc(sizeof(char*) * (num_chunks + 8)) ;
-    blksize = (int*)malloc(sizeof(int) * (num_chunks + 8)) ;
+
 
     int ret = 0;
     if ((ret = sscanf(buf, "larson %d %d %d %d %d %d %d", 
@@ -286,6 +284,10 @@ handle_larson (char * buf, void * priv)
     }
 
     min_threads = max_threads;
+
+// zjp
+    blkp = (char**)malloc(sizeof(char*) * ((max_threads+1)*chperthread )) ;
+    blksize = (int*)malloc(sizeof(int) * ((max_threads+1)*chperthread )) ;
 
     printf ("sleep = %ld, min = %d, max = %d, per thread = %d, num rounds = %d, seed = %d, max_threads = %d, min_threads = %d\n",
             sleep_cnt, min_size, max_size, chperthread, num_rounds, seed, max_threads, min_threads);
