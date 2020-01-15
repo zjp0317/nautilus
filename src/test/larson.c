@@ -230,8 +230,10 @@ extern "C" {
 static int
 handle_larson (char * buf, void * priv)
 {
+    /* zjp alloc based on num_chunks to avoid huge allocation
     blkp = (char**)malloc(sizeof(char*) * MAX_BLOCKS) ;
     blksize = (int*)malloc(sizeof(int) * MAX_BLOCKS) ;
+    */
 #if defined(USE_LFH) && defined(_WIN32)
     // Activate 'Low Fragmentation Heap'.
     ULONG info = 2;
@@ -266,6 +268,9 @@ handle_larson (char * buf, void * priv)
     int          num_chunks=10000;
     long sleep_cnt;
 
+// zjp
+    blkp = (char**)malloc(sizeof(char*) * (num_chunks + 8)) ;
+    blksize = (int*)malloc(sizeof(int) * (num_chunks + 8)) ;
 
     int ret = 0;
     if ((ret = sscanf(buf, "larson %d %d %d %d %d %d %d", 
