@@ -388,7 +388,7 @@ update_estimation (struct buddy_memzone * zone)
         zone->mem_requirement_l2 = zone->mem_requirement_l1 + PISCES_MEM_UNIT;
 #endif 
     DREQUEST_UPDATE_INFO(zone->mem_requirement_l1, zone->mem_requirement_l2);
-#if 0
+#if 1
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
       zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
 #endif
@@ -437,10 +437,10 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
     }
 
     if(freepool != NULL) { 
+        BUDDY_PRINT("Voluntarily returning pool addr %lx, size %lx: mem usage %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
+                freepool->base_addr, 1UL<<freepool->pool_order,
+                zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
         __buddy_remove_pool(freepool);
-        BUDDY_PRINT("Voluntarily return pool %lx to Pisces. Current l1 %lu, l2 %lu, size %lu, usage %lu\n", 
-                freepool->base_addr, zone->mem_requirement_l1, zone->mem_requirement_l2, 
-                zone->mem_size, zone->mem_usage);
     }
 
     if(has_lock == 0)
@@ -463,8 +463,9 @@ buddy_try_remove (struct buddy_memzone * zone,
         if(pool->in_use == 0 && pool->dr_flag == 1) {
             ulong_t pool_size = (1UL << pool->pool_order); 
             if(pool_size <= size) {
-                BUDDY_PRINT("Remove pool: base_addr=%p, size=%lu\n",
-                        (void *)pool->base_addr, pool_size); 
+                BUDDY_PRINT("Removing pool addr %lx, size %lx: mem usage %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
+                        pool->base_addr, pool_size,
+                        zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
 
                 __buddy_remove_pool(pool);
 
@@ -891,6 +892,8 @@ buddy_alloc (struct buddy_memzone *zone,
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
         if(need_prefetch == 1) { 
             // currently just prefetch one pool
+            BUDDY_PRINT("Try prefetch: mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
+                    zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
             drequest_try_prefetch();
         }
 #endif
