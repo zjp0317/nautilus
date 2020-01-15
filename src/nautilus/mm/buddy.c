@@ -377,16 +377,21 @@ update_estimation (struct buddy_memzone * zone)
         zone->mem_variation = zone->mem_variation - (zone->mem_variation / JACOBSON_BETA)
                 + (error / JACOBSON_BETA); 
     } else {
-        zone->mem_estimation = zone->mem_usage * JACOBSON_ALPHA;
+        zone->mem_estimation = zone->mem_usage * 4;
         zone->mem_variation = zone->mem_usage * 2;
     }
     zone->mem_requirement_l1 = zone->mem_estimation + (zone->mem_variation * K_L1);
     zone->mem_requirement_l2 = zone->mem_estimation + (zone->mem_variation * K_L2);
 
+#if 0 // do this on pisces side
+    if(zone->mem_requirement_l2 < zone->mem_requirement_l1 + PISCES_MEM_UNIT)
+        zone->mem_requirement_l2 = zone->mem_requirement_l1 + PISCES_MEM_UNIT;
+#endif 
     DREQUEST_UPDATE_INFO(zone->mem_requirement_l1, zone->mem_requirement_l2);
-
+#if 0
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
       zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
+#endif
 }
 
 /*
@@ -417,11 +422,11 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
         flags = spin_lock_irq_save(&(zone->lock));
 
     if(has_redundant_mem(zone) == 1) {
-        if(mp->in_use == 0) {
+        if(mp->in_use == 0 && mp->dr_flag == 1) {
             freepool = mp;
         } else {
             list_for_each_entry(tmp, &(zone->mempools), link) {
-                if(tmp->in_use == 0) {
+                if(tmp->in_use == 0 && tmp->dr_flag == 1) {
                     //&& (zone->mem_size > zone->mem_requirement_l1 + REMOVAL_FACTOR * (1UL<<tmp->pool_order))) {
                     freepool = tmp;
                     break;
@@ -433,7 +438,7 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
 
     if(freepool != NULL) { 
         __buddy_remove_pool(freepool);
-        BUDDY_PRINT("Return pool %lx to Pisces. Current l1 %lu, l2 %lu, size %lu, usage %lu\n", 
+        BUDDY_PRINT("Voluntarily return pool %lx to Pisces. Current l1 %lu, l2 %lu, size %lu, usage %lu\n", 
                 freepool->base_addr, zone->mem_requirement_l1, zone->mem_requirement_l2, 
                 zone->mem_size, zone->mem_usage);
     }
@@ -447,7 +452,7 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
 int
 buddy_try_remove (struct buddy_memzone * zone,
         ulong_t size, struct list_head* pool_list) {
-    int num_removed = 0;
+    uint32_t num_removed = 0;
     uint8_t flags = 0;
     int i = 0;
     struct buddy_mempool* pool = NULL;
@@ -455,7 +460,7 @@ buddy_try_remove (struct buddy_memzone * zone,
     flags = spin_lock_irq_save(&(zone->lock));
 
     list_for_each_entry(pool, &(zone->mempools), link) {
-        if(pool->in_use == 0 ) {
+        if(pool->in_use == 0 && pool->dr_flag == 1) {
             ulong_t pool_size = (1UL << pool->pool_order); 
             if(pool_size <= size) {
                 BUDDY_PRINT("Remove pool: base_addr=%p, size=%lu\n",
@@ -477,8 +482,8 @@ buddy_try_remove (struct buddy_memzone * zone,
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
 
-    drequest_set_removal_msg_len(num_removed);
-    drequest_confirm_remove();
+    //drequest_set_removal_msg_len(num_removed);
+    //drequest_confirm_remove();
 
     return num_removed;
 }
@@ -518,6 +523,7 @@ buddy_init_pool(struct buddy_memzone * zone,
     mp->zone            = zone;
     mp->num_free_blocks = 0;
     mp->in_use = 0;
+    mp->dr_flag = 0;
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));
@@ -612,6 +618,7 @@ buddy_create_pool(struct buddy_memzone * zone,
     mp->zone            = zone;
     mp->num_free_blocks = 0;
     mp->in_use = 0;
+    mp->dr_flag = 0;
 
     /* Allocate a bitmap with 1 bit per minimum-sized block */
     mp->num_blocks      = (1UL << (pool_order -  zone->min_order));

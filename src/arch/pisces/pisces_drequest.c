@@ -8,13 +8,16 @@
 
 #include <arch/pisces/pisces_drequest.h>
 
-#define DR_DEBUG 1
-#if DR_DEBUG
-#define DR_PRINT(fmt, args...)  INFO_PRINT("%s: " fmt, __FUNCTION__, ##args)
+#define DREQUEST_DEBUG 1
+
+#define DR_PRINT(fmt, args...)  INFO_PRINT(fmt, ##args)
+#define DR_ERROR(fmt, args...)  DR_PRINT(fmt, ##args)
+
+#if DREQUEST_DEBUG 
+#define DR_DEBUG(fmt, args...)  DR_PRINT(fmt, ##args)
 #else
-#define DR_PRINT(fmt, args...) 
+#define DR_DEBUG(fmt, args...) 
 #endif
-#define DR_ERROR(fmt, args...)  ERROR_PRINT("%s: " fmt, __FUNCTION__, ##args)
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 struct pisces_mem_dmsg{
@@ -130,13 +133,15 @@ prefetching_ipi_handler (excp_entry_t * excp,
 
     //mbarrier();
     msg_len = (ulong_t)atomic_get64(&prefetching_dchan->msg_len);
-    DR_PRINT("msg len %lu\n", msg_len);
+    DR_PRINT("Receive new mem info of %lu pools\n", msg_len);
+
     for(idx = 0; idx < msg_len; idx++) {
         dmsg.msg = atomic_get64(&prefetching_dchan->msg[idx]);
-        DR_PRINT("msg %lu\n", dmsg.msg);
+        DR_DEBUG("msg %lu\n", dmsg.msg);
+
         if(0 != kmem_add_mempool(NULL,
                         (ulong_t)dmsg.addr << DREQUEST_ADDR_SHIFT,
-                        (ulong_t)dmsg.size)) {
+                        (ulong_t)dmsg.size, 1)) {
             DR_ERROR("Failed to add new pool base_addr=%lx size=%lx\n",
                     dmsg.addr << DREQUEST_ADDR_SHIFT, dmsg.size);
         }
@@ -169,14 +174,13 @@ removal_ipi_handler (excp_entry_t * excp,
     //mbarrier();
     size = atomic_get64(&removal_dchan->msg[0]);
 
+    DR_PRINT("Receive mem removal request of %lu bytes\n", size);
+
     mbarrier();
     /* try remove pool */
-    if(0 == kmem_try_remove(size)) {
-        drequest_set_removal_msg(0, 0);
-    }
-    mbarrier();
+    kmem_try_remove(size);
 
-    drequest_confirm_remove();
+    //drequest_confirm_remove();
     
     IRQ_HANDLER_END();
     return 0;

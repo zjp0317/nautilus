@@ -133,6 +133,9 @@ struct buddy_mempool {
                                  */
 
     ulong_t    in_use; // free_size;
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    ulong_t    dr_flag; // handled by drequest
+#endif
 
 #ifdef LARGE_OBJ_MAP 
     uint8_t     *large_obj_map; /* each entry stores the order value of a large object

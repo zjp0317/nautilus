@@ -295,7 +295,7 @@ kmem_try_remove (ulong_t size)
 {
     struct buddy_mempool * mp = NULL;
     ulong_t removed_bytes = 0;
-    int removed_pools = 0;
+    uint32_t num_removed= 0;
     struct list_head pool_list;
 
     if(size == 0)
@@ -303,18 +303,18 @@ kmem_try_remove (ulong_t size)
 
     INIT_LIST_HEAD(&pool_list);
     
-    removed_pools = buddy_try_remove(drequest_zone, size, &pool_list);
-    if(removed_pools > 0) {
+    num_removed = buddy_try_remove(drequest_zone, size, &pool_list);
+
+    drequest_set_removal_msg_len(num_removed);
+    drequest_confirm_remove();
+
+    if(num_removed > 0) {
         list_for_each_entry(mp, &pool_list, link) {
-            ulong_t psize = 1UL << mp->pool_order;
-
             __kmem_cleanup_mempool(mp);
-
-            removed_bytes += psize;
         }
     }
 
-    return removed_bytes;
+    return 0;
 }
 #endif
 
@@ -425,7 +425,8 @@ static int kmem_alloc_unit_hash (uint64_t base_addr, uint64_t end_addr, struct b
 int
 kmem_add_mempool (struct buddy_memzone * zone,
                  ulong_t base_addr, 
-                 ulong_t size)
+                 ulong_t size,
+                 ulong_t dr_flag)
 {
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     if(zone == NULL)
@@ -456,6 +457,7 @@ kmem_add_mempool (struct buddy_memzone * zone,
     /* now it's safe to enable allocation on this mempool */ 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     buddy_free(1, mp, (void*)base_addr, mp->pool_order);
+    mp->dr_flag = dr_flag;
 #else
     buddy_free(mp, (void*)base_addr, mp->pool_order);
 #endif
@@ -468,6 +470,7 @@ kmem_add_mempool (struct buddy_memzone * zone,
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
 #endif 
+    KMEM_PRINT("New mempool %lx added \n", mp->base_addr);
     //KMEM_PRINT("got at rdtsc %lu\n", rdtsc());
     return 0;
 err:

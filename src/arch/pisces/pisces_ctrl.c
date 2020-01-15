@@ -80,7 +80,7 @@ cmd_handler(u8    * data,
                 INFO_PRINT("Pisces cannot provide anymore mem now\n");
             } else {
                 INFO_PRINT("Reiceve ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
-                ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size);
+                ret = kmem_add_mempool(numa_info->domains[0]->zone, mem_cmd->phys_addr, mem_cmd->size, 0);
                 if(ret != 0) {
                     INFO_PRINT("Failed to ADD_MEM addr %lx size %lx\n", mem_cmd->phys_addr, mem_cmd->size);
                 }
