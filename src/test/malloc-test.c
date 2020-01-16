@@ -15,15 +15,17 @@
 #define INFO_PRINT(fmt, args...) nk_vc_printf(fmt, ##args)
 #define fINFO_PRINT(foo,fmt, args...) nk_vc_printf(fmt, ##args)
 
-static uint64_t MAX_PSIZE = 0; // in KB
+static uint64_t max_alloc_size = 0; // in KB
 
 #define MAX_MEM (512*1024UL*1024UL) // 512M
+#define RUNS 300 
 
+#define SEED 23
 
 #define GAP //{udelay(100000);} 
 
-//#define MAX_PSIZE (4*1024ul) //(1024ul*1024ul*1024ul)
-//#define MAX_PSIZE (1024ul*1024ul*64ul) //(1024ul*1024ul*1024ul)
+//#define max_alloc_size (4*1024ul) //(1024ul*1024ul*1024ul)
+//#define max_alloc_size (1024ul*1024ul*64ul) //(1024ul*1024ul*1024ul)
 
 static size_t gettime() {
     //struct timeval t;
@@ -40,21 +42,23 @@ static size_t gettime() {
 static int
 handle_malloc_test1 (char * buf, void * priv)
 {
+
     int ret = 0;
-    if ((ret = sscanf(buf, "malloc-test1 %lu",&MAX_PSIZE)) != 1) {
-        MAX_PSIZE = 1*1024;
-        INFO_PRINT("Use default setting:  MAX_PSIZE %lu\n", MAX_PSIZE);
+    if ((ret = sscanf(buf, "malloc-test1 %lu",&max_alloc_size)) != 1) {
+        max_alloc_size = 4*1024;
+        INFO_PRINT("Use default setting:  max_alloc_size %lu\n", max_alloc_size);
     } else {
-        MAX_PSIZE *= 1024;
-        INFO_PRINT("Use setting:  MAX_PSIZE %lu\n", MAX_PSIZE);
+        max_alloc_size *= 4*1024;
+        INFO_PRINT("Use setting:  max_alloc_size %lu\n", max_alloc_size);
     }
 
+    srand48(SEED);
     size_t begin = gettime();
     size_t mtime = 0.0;
     size_t ftime = 0.0;
     size_t i = 0;
     size_t failed = 0;
-    size_t runs = MAX_MEM / MAX_PSIZE;
+    size_t runs = RUNS;//MAX_MEM / max_alloc_size;
     if(runs == 0) {
         INFO_PRINT("test runs less than 1. Use small unit\n");
         return 0 ;
@@ -64,7 +68,7 @@ handle_malloc_test1 (char * buf, void * priv)
 
     for(i = 0; i < runs; i++) {
         size_t tmp = gettime();
-        p[i] = malloc(MAX_PSIZE >> 10);
+        p[i] = malloc(max_alloc_size >> (lrand48() % 10));
         if(p[i] == NULL) {
             INFO_PRINT("failed allocation at runs %d\n", i);
             failed++;
@@ -83,7 +87,7 @@ handle_malloc_test1 (char * buf, void * priv)
     /***********/
     for(i = 0; i < runs; i++) {
         size_t tmp = gettime();
-        p[i] = malloc(MAX_PSIZE);
+        p[i] = malloc(max_alloc_size >> (lrand48() % 5));
         if(p[i] == NULL) {
             INFO_PRINT("failed allocation at runs %d\n", i);
             failed++;
@@ -102,7 +106,7 @@ handle_malloc_test1 (char * buf, void * priv)
     INFO_PRINT("************************\n");
     for(i = 0; i < runs; i++) {
         size_t tmp = gettime();
-        p[i] = malloc(MAX_PSIZE >> 1);
+        p[i] = malloc(max_alloc_size >> (lrand48() % 10));
         if(p[i] == NULL) {
             INFO_PRINT("failed allocation at runs %d\n", i);
             failed++;
