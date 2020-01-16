@@ -289,8 +289,8 @@ handle_larson (char * buf, void * priv)
     min_threads = max_threads;
 
 // zjp
-    blkp = (char**)malloc(sizeof(char*) * (num_chunks*chperthread )) ;
-    blksize = (int*)malloc(sizeof(int) * (num_chunks*chperthread )) ;
+    blkp = (char**)mallocz(sizeof(char*) * (num_chunks*chperthread )) ;
+    blksize = (int*)mallocz(sizeof(int) * (num_chunks*chperthread )) ;
 
     printf ("sleep = %ld, min = %d, max = %d, per thread = %d, num rounds = %d, seed = %d, max_threads = %d, min_threads = %d\n",
             sleep_cnt, min_size, max_size, chperthread, num_rounds, seed, max_threads, min_threads);
