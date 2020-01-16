@@ -528,7 +528,7 @@ void runthreads(long sleep_cnt, int min_threads, int max_threads, int chperthrea
                 thr_yield();
 #else
                 //sched_yield();
-                nk_sched_yield(0);
+                nk_yield();
 #endif
             }
         }
@@ -600,6 +600,7 @@ static void * exercise_heap( void *pinput)
     long          blk_size ;
     int           range ;
 
+repeat:
     if( stopflag ) return 0;
 
     pdea = (thread_data *)pinput ;
@@ -652,7 +653,10 @@ static void * exercise_heap( void *pinput)
 #ifdef __WIN32__
         _beginthread((void (__cdecl*)(void *)) exercise_heap, 0, pdea) ;  
 #else
-        _beginthread(exercise_heap, 0, pdea) ;
+        // zjp
+        nk_yield();
+        goto repeat;
+        //_beginthread(exercise_heap, 0, pdea) ;
 #endif
     } else {
         printf ("thread stopping.\n");
