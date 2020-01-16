@@ -98,7 +98,10 @@ void _beginthread (VoidFunction x, int tmp, void * z)
 #endif
 
     //  printf ("creating a thread.\n");
-    int v = pthread_create(&pt, &pa, x, z);
+    //int v = pthread_create(&pt, &pa, x, z);
+    static int cpu = 0; 
+    if(cpu <= 1) cpu = nautilus_info.sys.num_cpus;
+    nk_thread_start(x,z,0,0,TSTACK_DEFAULT,&pt,--cpu);
     //  printf ("v = %d\n", v);
 }
 #endif
