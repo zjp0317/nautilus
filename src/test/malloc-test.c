@@ -44,8 +44,10 @@ handle_malloc_test1 (char * buf, void * priv)
 {
 
     int ret = 0;
-    if ((ret = sscanf(buf, "malloc-test1 %lu",&max_alloc_size)) != 1) {
+    long  shift = 1;
+    if ((ret = sscanf(buf, "malloc-test1 %lu %ld",&max_alloc_size, &shift)) != 2) {
         max_alloc_size = 4*1024;
+        shift = 10;
         INFO_PRINT("Use default setting:  max_alloc_size %lu\n", max_alloc_size);
     } else {
         max_alloc_size *= 4*1024;
@@ -68,7 +70,7 @@ handle_malloc_test1 (char * buf, void * priv)
 
     for(i = 0; i < runs; i++) {
         size_t tmp = gettime();
-        p[i] = malloc(max_alloc_size >> (lrand48() % 10));
+        p[i] = malloc(max_alloc_size >> (lrand48() % shift));
         if(p[i] == NULL) {
             INFO_PRINT("failed allocation at runs %d\n", i);
             failed++;
@@ -83,6 +85,7 @@ handle_malloc_test1 (char * buf, void * priv)
         free(p[i]);
         ftime += gettime() - tmp;
     }
+#if 0
     INFO_PRINT("************************\n");
     /***********/
     for(i = 0; i < runs; i++) {
@@ -122,6 +125,7 @@ handle_malloc_test1 (char * buf, void * priv)
         ftime += gettime() - tmp;
     }
     runs *= 3;
+#endif
 
     free(p);
     INFO_PRINT("time = %lu\n malloc(%lu) time = %lu\n free(%lu) time = %lu\n faled = %lu\n", gettime() - begin, runs, mtime, runs, ftime, failed);
