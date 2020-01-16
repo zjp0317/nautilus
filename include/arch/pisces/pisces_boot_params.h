@@ -102,6 +102,7 @@ struct pisces_boot_params {
 
     // drequest
     u64 drequest_mem_info; // l1, l2
+    u64 drequest_mem_usage; // for experiments
     u64 prefeching_dchan_addr;
     u64 removal_dchan_addr;
 } __attribute__((packed));
