@@ -389,7 +389,7 @@ update_estimation (struct buddy_memzone * zone)
 #endif 
     DREQUEST_UPDATE_INFO(zone->mem_requirement_l1, zone->mem_requirement_l2);
     atomic_set64(&pisces_boot_params->drequest_mem_usage, zone->mem_usage); 
-#if 0
+#if 1
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
       zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
 #endif
@@ -958,9 +958,9 @@ buddy_free_internal(
     ASSERT(!is_available(mp, block));
 
     struct buddy_memzone* zone = mp->zone;
-    mp->num_free_blocks += (1UL << (order - zone->min_order));
 
     flags = spin_lock_irq_save(&(zone->lock));
+    mp->num_free_blocks += (1UL << (order - zone->min_order));
 
     clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
 #ifdef LARGE_OBJ_MAP
@@ -1073,9 +1073,10 @@ buddy_free(
     ASSERT(!is_available(mp, block));
 
     struct buddy_memzone* zone = mp->zone;
-    mp->num_free_blocks += (1UL << (order - zone->min_order));
 
     flags = spin_lock_irq_save(&(zone->lock));
+
+    mp->num_free_blocks += (1UL << (order - zone->min_order));
 
     clear_order_bit(mp, block_id, order); // clear order bit, before merging buddy! 
 
