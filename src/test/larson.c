@@ -411,6 +411,7 @@ void runloops(long sleep_cnt, int num_chunks )
             delete blkp[victim] ;
 #else
             free(blkp[victim]) ;
+            blkp[victim] = NULL;
 #endif
 
             if (max_size == min_size) {
@@ -484,7 +485,7 @@ void runthreads(long sleep_cnt, int min_threads, int max_threads, int chperthrea
     for(num_threads=min_threads; num_threads <= max_threads; num_threads++ )
     {
 
-        warmup(&blkp[prevthreads*chperthread], (num_threads-prevthreads)*chperthread );
+        // zjp warmup(&blkp[prevthreads*chperthread], (num_threads-prevthreads)*chperthread );
 
         nperthread = chperthread ;
         stopflag   = FALSE ;
@@ -619,9 +620,11 @@ repeat:
         pdea->cFrees++ ;
 
         if (range == 0) {
-            blk_size = pdea->min_size;
+            //blk_size = pdea->min_size;
+            blk_size = 1UL << pdea->min_size;
         } else {
-            blk_size = pdea->min_size+lran2(&pdea->rgen)%range ;
+            //blk_size = pdea->min_size+lran2(&pdea->rgen)%range ;
+            blk_size = 1UL << (pdea->min_size+lran2(&pdea->rgen)%range) ;
         }
 #ifdef CPP
         pdea->array[victim] = new char[blk_size] ;
