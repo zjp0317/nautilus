@@ -105,14 +105,16 @@ release_removal_dchan ()
     return 0;
 }
 
-inline void
+inline int 
 drequest_try_prefetch() {
     if(atomic_cmpswap(prefetching_dchan->in_progress, 0, 1) == 0) {
         DR_DEBUG("Sending prefetch request\n");
         atomic_set64(&prefetching_dchan->msg[0], 0);
         //mbarrier();
         drequest_send(prefetching_dchan);
+        return 1;
     }
+    return 0;
 }
 
 inline void

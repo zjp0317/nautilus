@@ -18,7 +18,7 @@ inline void drequest_set_removal_msg_len(u32 len);
 inline int claim_removal_dchan();
 inline int release_removal_dchan();
 
-inline void drequest_try_prefetch();
+inline int drequest_try_prefetch();
 inline void drequest_confirm_remove();
 
 int drequest_init();

@@ -846,8 +846,11 @@ retry:
         NK_GPIO_OUTPUT_MASK(~0x20,GPIO_AND);
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
         if(dretry++ < HARD_PREFETCH_TRIES) {
-            drequest_try_prefetch();
-            KMEM_PRINT("Waiting(%d) for drequest prefetch on malloc: size %lu order %lu\n", dretry, size, order);
+            if(1 == drequest_try_prefetch()) {
+                KMEM_PRINT("Sent on-demand request and waiting(%d) for drequest prefetch on malloc: size %lu order %lu\n", dretry, size, order);
+            } else {
+                KMEM_PRINT("Waiting(%d) for drequest prefetch on malloc: size %lu order %lu\n", dretry, size, order);
+            }
             //udelay(1000);
             drequest_wait_for_prefetch();
 

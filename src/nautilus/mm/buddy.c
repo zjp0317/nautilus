@@ -892,11 +892,10 @@ buddy_alloc (struct buddy_memzone *zone,
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
         if(need_prefetch == 1) { 
             // currently just prefetch one pool
-#if DR_DEBUG
-            BUDDY_PRINT("Try prefetch: mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
-                    pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
-#endif
-            drequest_try_prefetch();
+            if( 1 == drequest_try_prefetch()) {
+                BUDDY_PRINT("send prefetch: mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
+                        pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
+            }
         }
 #endif
         return block;
