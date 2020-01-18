@@ -101,8 +101,15 @@ struct pisces_boot_params {
     u64 block_size;
 
     // drequest
-    u64 drequest_mem_info; // l1, l2
-    u64 drequest_mem_usage; // for experiments
+    u64 mem_size;           // single writer
+    u64 mem_usage;          // single writer
+    u64 dr_seq_num;   // single writer
+
+    u64 dr_mem_estimation;  // shared, host may write it
+    u64 dr_mem_variation;   // shared
+    u64 dr_mem_l1;          // shared
+    u64 dr_mem_l2;          // shared
+
     u64 prefeching_dchan_addr;
     u64 removal_dchan_addr;
 } __attribute__((packed));

@@ -470,7 +470,7 @@ kmem_add_mempool (struct buddy_memzone * zone,
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
 #endif 
-    KMEM_PRINT("New mempool %lx added \n", mp->base_addr);
+    KMEM_PRINT("New mempool %lx size %lx added \n", mp->base_addr, size);
     //KMEM_PRINT("got at rdtsc %lu\n", rdtsc());
     return 0;
 err:
@@ -731,6 +731,7 @@ nk_kmem_init_all (void)
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     drequest_zone = numa_info->domains[0]->zone;
+    atomic_set64(&pisces_boot_params->mem_size, total_phys_mem); 
     if(0 != drequest_init()) {
         panic("Cound not initialize drequest");
         return -1;

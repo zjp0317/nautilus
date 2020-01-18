@@ -348,51 +348,38 @@ __buddy_remove_pool(struct buddy_mempool * mp)
     mp->zone->num_pools--;
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    mp->zone->mem_size -= 1UL << mp->pool_order;
+    atomic_sub(pisces_boot_params->mem_size, 1UL << mp->pool_order);
 #endif
 }
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-#define DREQUEST_PFN(x)         (((x) + DREQUEST_PAGE_SIZE-1) >> DREQUEST_PAGE_SHIFT)
-#define L_MASK(x)  ((ulong_t)((x) & ((1UL<<32) - 1))) // maximum (4G-1) pages
-
-#define DREQUEST_UPDATE_INFO(l1, l2)                        \
-    do {                                                    \
-        ulong_t _l1 = L_MASK( DREQUEST_PFN(l1) );           \
-        ulong_t _l2 = L_MASK( DREQUEST_PFN(l2) );           \
-        ulong_t _info = (_l2<<32) | _l1;                    \
-                                                            \
-        atomic_set64(&pisces_boot_params->drequest_mem_info, _info);   \
-    } while (0) 
-
 static void 
 update_estimation (struct buddy_memzone * zone)
 {
     // Jacobson's algorithm
-    if(zone->mem_estimation != 0) {
-        ulong_t error = (zone->mem_usage > zone->mem_estimation) ? zone->mem_usage - zone->mem_estimation
-                : zone->mem_estimation - zone->mem_usage;
-        zone->mem_estimation = zone->mem_estimation - ( zone->mem_estimation  / JACOBSON_ALPHA)
-                + (zone->mem_usage / JACOBSON_ALPHA);
-        zone->mem_variation = zone->mem_variation - (zone->mem_variation / JACOBSON_BETA)
-                + (error / JACOBSON_BETA); 
-    } else {
-        zone->mem_estimation = zone->mem_usage * 4;
-        zone->mem_variation = zone->mem_usage * 2;
-    }
-    zone->mem_requirement_l1 = zone->mem_estimation + (zone->mem_variation * K_L1);
-    zone->mem_requirement_l2 = zone->mem_estimation + (zone->mem_variation * K_L2);
+    ulong_t error, tmp_estimation, tmp_variation, tmp_usage;
 
-#if 0 // do this on pisces side
-    if(zone->mem_requirement_l2 < zone->mem_requirement_l1 + PISCES_MEM_UNIT)
-        zone->mem_requirement_l2 = zone->mem_requirement_l1 + PISCES_MEM_UNIT;
-#endif 
-    DREQUEST_UPDATE_INFO(zone->mem_requirement_l1, zone->mem_requirement_l2);
-    atomic_set64(&pisces_boot_params->drequest_mem_usage, zone->mem_usage); 
-#if 1
+    atomic_inc(pisces_boot_params->dr_seq_num); 
+
+    tmp_usage = atomic_get64(&pisces_boot_params->mem_usage);
+    tmp_estimation = atomic_get64(&pisces_boot_params->dr_mem_estimation);
+    if(tmp_estimation != 0) {
+        tmp_variation = atomic_get64(&pisces_boot_params->dr_mem_variation);
+        error = (tmp_usage > tmp_estimation) ? tmp_usage - tmp_estimation
+                    : tmp_estimation - tmp_usage;
+        tmp_estimation = tmp_estimation - (tmp_estimation/JACOBSON_ALPHA) + (tmp_usage/JACOBSON_ALPHA);
+        tmp_variation = tmp_variation - (tmp_variation/JACOBSON_BETA) + (error/JACOBSON_BETA); 
+    } else {
+        tmp_estimation = tmp_usage;
+        tmp_variation = tmp_usage;
+    }
+    atomic_set64(&pisces_boot_params->dr_mem_estimation, tmp_estimation);
+    atomic_set64(&pisces_boot_params->dr_mem_variation, tmp_variation);
+    atomic_set64(&pisces_boot_params->dr_mem_l1, tmp_estimation + (tmp_variation * K_L1));
+    atomic_set64(&pisces_boot_params->dr_mem_l2, pisces_boot_params->dr_mem_estimation + (pisces_boot_params->dr_mem_variation * K_L2));
+
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
-      zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
-#endif
+      pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
 }
 
 /*
@@ -401,10 +388,18 @@ update_estimation (struct buddy_memzone * zone)
 static inline int 
 has_redundant_mem (struct buddy_memzone* zone)
 {
-    if(zone->mem_requirement_l1 <= zone->mem_usage)
+    ulong_t tmp_l1, tmp_l2, tmp_size, tmp_usage;
+
+    tmp_l1 = atomic_get64(&pisces_boot_params->dr_mem_l1);
+    tmp_usage = atomic_get64(&pisces_boot_params->mem_usage);
+    if(tmp_l1 < tmp_usage)
         return 0;
-    if(zone->mem_size > (zone->mem_requirement_l2 + PISCES_MEM_UNIT) * REMOVAL_FACTOR)
+    
+    tmp_size = atomic_get64(&pisces_boot_params->mem_size);
+    tmp_l2 = atomic_get64(&pisces_boot_params->dr_mem_l2);
+    if(tmp_size > (tmp_l2 + PISCES_MEM_UNIT) * REMOVAL_FACTOR)
         return 1;
+
     return 0;
 }
 
@@ -428,7 +423,7 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
         } else {
             list_for_each_entry(tmp, &(zone->mempools), link) {
                 if(tmp->in_use == 0 && tmp->dr_flag == 1) {
-                    //&& (zone->mem_size > zone->mem_requirement_l1 + REMOVAL_FACTOR * (1UL<<tmp->pool_order))) {
+                    //&& (pisces_boot_params->mem_size > pisces_boot_params->dr_mem_l1 + REMOVAL_FACTOR * (1UL<<tmp->pool_order))) {
                     freepool = tmp;
                     break;
                 }
@@ -440,7 +435,7 @@ buddy_voluntary_remove (struct buddy_memzone * zone,
     if(freepool != NULL) { 
         BUDDY_PRINT("Voluntarily returning pool addr %lx, size %lx: mem usage %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
                 freepool->base_addr, 1UL<<freepool->pool_order,
-                zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
+                pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
         __buddy_remove_pool(freepool);
     }
 
@@ -466,7 +461,7 @@ buddy_try_remove (struct buddy_memzone * zone,
             if(pool_size <= size) {
                 BUDDY_PRINT("Removing pool addr %lx, size %lx: mem usage %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
                         pool->base_addr, pool_size,
-                        zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
+                        pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
 
                 __buddy_remove_pool(pool);
 
@@ -683,7 +678,7 @@ buddy_remove_pool(struct buddy_mempool * mp, char has_lock)
     zone->num_pools--;
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    zone->mem_size -= 1UL << mp->pool_order;
+    atomic_sub(pisces_boot_params->mem_size, 1UL << mp->pool_order);
 #endif
 
     if(has_lock == 0)
@@ -877,11 +872,12 @@ buddy_alloc (struct buddy_memzone *zone,
         block->mempool = NULL;
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
-        zone->mem_usage += 1UL << block->order;
+        atomic_add(pisces_boot_params->mem_usage, 1UL << block->order);
 
         update_estimation(zone);
 
-        if(zone->mem_size < zone->mem_requirement_l1) {
+        // potential race but fine
+        if(atomic_get64(&pisces_boot_params->mem_size) < atomic_get64(&pisces_boot_params->dr_mem_l1)) {
             need_prefetch = 1;
         }
 #endif
@@ -894,7 +890,7 @@ buddy_alloc (struct buddy_memzone *zone,
         if(need_prefetch == 1) { 
             // currently just prefetch one pool
             BUDDY_PRINT("Try prefetch: mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
-                    zone->mem_usage, zone->mem_estimation, zone->mem_requirement_l1, zone->mem_requirement_l2, zone->mem_size);
+                    pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
             drequest_try_prefetch();
         }
 #endif
@@ -1093,10 +1089,10 @@ buddy_free(
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
     // a buddy free could be used for adding mem 
     if(is_new_mem == 0) {
-        zone->mem_usage -= 1UL << order;
+        atomic_sub(pisces_boot_params->mem_usage, 1UL << order);
         update_estimation(zone);
     } else {
-        zone->mem_size += 1UL << order;
+        atomic_add(pisces_boot_params->mem_size, 1UL << order);
     }
 #endif
 

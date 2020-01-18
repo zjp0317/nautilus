@@ -37,10 +37,10 @@
 
 #define HARD_PREFETCH_TRIES 10 // when malloc fails, try 10 times to fetch memory
 
-#define JACOBSON_ALPHA      16
+#define JACOBSON_ALPHA      8
 #define JACOBSON_BETA       64
-#define K_L1                2
-#define K_L2                4
+#define K_L1                4
+#define K_L2                8
 
 #define REMOVAL_FACTOR      2
 
@@ -59,18 +59,6 @@ struct buddy_memzone {
     uint_t      is_mirror;       /* this zone is a mirror on other zone */
 
     ulong_t     num_pools;
-
-#ifdef NAUT_CONFIG_PISCES_DYNAMIC
-    ulong_t  drequest_inprogress;
-
-    ulong_t  mem_usage;
-    ulong_t  mem_estimation;
-    ulong_t  mem_variation;
-    ulong_t  mem_requirement_l1;
-    ulong_t  mem_requirement_l2;
-
-    ulong_t  mem_size;
-#endif
 
     struct list_head * avail;   /* one free list for each block size,
                                  * indexed by block order:
