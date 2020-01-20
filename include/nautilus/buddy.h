@@ -37,11 +37,24 @@
 
 #define HARD_PREFETCH_TRIES 10 // when malloc fails, try 10 times to fetch memory
 
+#if 1
+#define MAX_J_LEVEL 2 // starting from 0
+struct estimation_level {
+    ulong_t alpha;
+    ulong_t beta;
+    ulong_t k1;
+    ulong_t k2;
+};
+inline void relax_estimation_level();
+extern ulong_t has_failed_allocation;
+extern ulong_t j_level_idx;
+extern struct estimation_level j_level[MAX_J_LEVEL+1];
+#else
 #define JACOBSON_ALPHA      8
-#define JACOBSON_BETA       64
-#define K_L1                4
-#define K_L2                8
-
+#define JACOBSON_BETA       32
+#define K_L1                8
+#define K_L2                16
+#endif
 #define REMOVAL_FACTOR      2
 
 #define DREQUEST_PAGE_SHIFT     12

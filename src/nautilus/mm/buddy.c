@@ -354,32 +354,60 @@ __buddy_remove_pool(struct buddy_mempool * mp)
 
 #ifdef NAUT_CONFIG_PISCES_DYNAMIC
 #define DR_DEBUG 0
+
+ulong_t has_failed_allocation = 0;
+ulong_t j_level_idx = 0; // initial as most aggresive
+struct estimation_level j_level[MAX_J_LEVEL + 1] = 
+{
+    {.alpha = 5, .beta = 5, .k1 = 3, .k2 = 2},
+    {.alpha = 5, .beta = 7, .k1 = 3, .k2 = 2},
+    {.alpha = 5, .beta = 8, .k1 = 3, .k2 = 2},
+};
+
+inline void
+relax_estimation_level()
+{
+    // if no failure during prefetching, use a more relax estimation
+    if(atomic_cmpswap(has_failed_allocation, 1, 0) == 0) {
+        ulong_t cur = atomic_get64(&j_level_idx);
+        if(cur < MAX_J_LEVEL) {
+            BUDDY_PRINT("relaxing estimation level by 1. Current level %lu\n", cur);
+            atomic_inc(j_level_idx);
+
+        }
+    }
+}
+
 static void 
 update_estimation (struct buddy_memzone * zone)
 {
     // Jacobson's algorithm
     ulong_t error, tmp_estimation, tmp_variation, tmp_usage;
+    ulong_t cur;
 
     atomic_inc(pisces_boot_params->dr_seq_num); 
 
     tmp_usage = atomic_get64(&pisces_boot_params->mem_usage);
     tmp_estimation = atomic_get64(&pisces_boot_params->dr_mem_estimation);
+    cur = atomic_get64(&j_level_idx);
     if(tmp_estimation != 0) {
         tmp_variation = atomic_get64(&pisces_boot_params->dr_mem_variation);
         error = (tmp_usage > tmp_estimation) ? tmp_usage - tmp_estimation
                     : tmp_estimation - tmp_usage;
-        tmp_estimation = tmp_estimation - (tmp_estimation/JACOBSON_ALPHA) + (tmp_usage/JACOBSON_ALPHA);
-        tmp_variation = tmp_variation - (tmp_variation/JACOBSON_BETA) + (error/JACOBSON_BETA); 
+        tmp_estimation = tmp_estimation - (tmp_estimation/j_level[cur].alpha) + (tmp_usage/j_level[cur].alpha);
+        tmp_variation = tmp_variation - (tmp_variation/j_level[cur].beta) + (error/j_level[cur].beta); 
     } else {
         tmp_estimation = tmp_usage;
         tmp_variation = tmp_usage;
     }
     atomic_set64(&pisces_boot_params->dr_mem_estimation, tmp_estimation);
     atomic_set64(&pisces_boot_params->dr_mem_variation, tmp_variation);
-    atomic_set64(&pisces_boot_params->dr_mem_l1, tmp_estimation + (tmp_variation * K_L1));
-    atomic_set64(&pisces_boot_params->dr_mem_l2, pisces_boot_params->dr_mem_estimation + (pisces_boot_params->dr_mem_variation * K_L2));
+    tmp_estimation += tmp_variation * j_level[cur].k1;
+    atomic_set64(&pisces_boot_params->dr_mem_l1, tmp_estimation);
+    tmp_estimation += tmp_variation * j_level[cur].k2;
+    atomic_set64(&pisces_boot_params->dr_mem_l2, tmp_estimation);
 
-#if DR_DEBUG
+#if DR_DEBUG 
     BUDDY_PRINT("Mem usage: %lu, estimation %lu, l1 %lu, l2 %lu size %lu\n",
       pisces_boot_params->mem_usage, pisces_boot_params->dr_mem_estimation, pisces_boot_params->dr_mem_l1, pisces_boot_params->dr_mem_l2, pisces_boot_params->mem_size);
 #endif
@@ -901,6 +929,19 @@ buddy_alloc (struct buddy_memzone *zone,
         return block;
     }
 
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+    // with current estimation, we met a failed allocation,
+    // change to the most aggresive estimation.
+    if(atomic_cmpswap(has_failed_allocation,0, 1) == 0) {
+        atomic_add(pisces_boot_params->dr_mem_estimation, KMEM_UNIT_SIZE);
+    }
+    ulong_t cur = atomic_get64(&j_level_idx);
+    if(cur != 0) {
+        BUDDY_PRINT("switching estimation level to 0. current level %lu!\n", cur);
+        atomic_set64(&j_level_idx, 0);
+
+    }
+#endif
     spin_unlock_irq_restore(&(zone->lock), flags);
     BUDDY_DEBUG("FAILED TO ALLOCATE from zone %p - RETURNING  NULL\n", zone);
 

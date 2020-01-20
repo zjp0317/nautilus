@@ -467,11 +467,14 @@ kmem_add_mempool (struct buddy_memzone * zone,
     flags = spin_lock_irq_save(&(zone->lock));
     {
         insert_mempool(zone, mp);
+#ifdef NAUT_CONFIG_PISCES_DYNAMIC
+        relax_estimation_level();
+#endif
     }
     spin_unlock_irq_restore(&(zone->lock), flags);
 #endif 
-    KMEM_PRINT("New mempool %lx size %lx added \n", mp->base_addr, size);
-    //KMEM_PRINT("got at rdtsc %lu\n", rdtsc());
+    KMEM_PRINT("New mempool %lx size %lx added at %lu\n", mp->base_addr, size, rdtscp());
+    //KMEM_PRINT("got at rdtscp %lu\n", rdtscp());
     return 0;
 err:
     free_page_tables(base_addr, size);
