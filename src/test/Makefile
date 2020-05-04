@@ -8,10 +8,12 @@ obj-y += bsp.o
 obj-y += net_udp_echo.o
 obj-y += test.o
 
+#obj-y += redis.o
+
 obj-y += new-malloc-test.o
 obj-y += larson.o
 obj-y += random-malloc.o
-#obj-y += sh6bench.o
+obj-y += sh6bench.o
 obj-y += calloc-test.o
 obj-y += malloc-test.o
 obj-y += streamcluster.o
